@@ -1,7 +1,7 @@
 [project]
 name = "tb_internship"
 version = "0.1.0"
-description = "Add your description here"
+description = "Causal inference approaches for drug-resistant tuberculosis biomarker identification"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
