@@ -1,0 +1,3 @@
+[submodule "external/cmm"]
+	path = external/cmm
+	url = git@github.com:YasmineParent/cmm.git
