@@ -5,15 +5,26 @@ description = "Causal inference approaches for drug-resistant tuberculosis bioma
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "alive-progress>=3.3.0",
+    "causal-learn>=0.1.4.5",
+    "causaldag>=0.1a163",
+    "cdt>=0.6.0",
+    "gadjid>=0.1.0",
     "ipykernel>=7.2.0",
     "joblib>=1.5.3",
     "jupyterlab>=4.5.6",
     "matplotlib>=3.10.8",
+    "networkx>=3.6.1",
     "numpy>=2.4.4",
     "pandas>=3.0.2",
+    "pgmpy>=1.1.0",
     "pyagrum>=2.3.2",
+    "pygam>=0.8.0",
+    "rpy2>=3.6.7",
     "scikit-learn>=1.8.0",
     "scipy>=1.17.1",
     "seaborn>=0.13.2",
+    "tabulate>=0.10.0",
+    "torch>=2.11.0",
     "tqdm>=4.67.3",
 ]
