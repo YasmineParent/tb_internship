@@ -10,3 +10,4 @@ data/synthetic/*
 !data/real/processed/.gitkeep
 !data/synthetic/.gitkeep
 .DS_Store
+.claude/
