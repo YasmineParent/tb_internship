@@ -11,3 +11,5 @@ data/synthetic/*
 !data/synthetic/.gitkeep
 .DS_Store
 .claude/
+results/preliminary/*
+!results/preliminary/.gitkeep
