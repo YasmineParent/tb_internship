@@ -76,4 +76,5 @@ def run_and_save(X: np.ndarray, features: list[str], forbidden_edges: set[tuple[
         pd.DataFrame(edges, columns=['source', 'target']).to_csv(os.path.join(output_dir, 'edges.csv'), index=False)
         gum.saveBN(bn, os.path.join(output_dir, 'causal_graph.bifxml'))
 
-    return cmm, gnb.getBN(bn)
+    gnb.showBN(bn)
+    return cmm
