@@ -18,7 +18,7 @@ def topic_graph_to_bn(topic_graph: nx.DiGraph, node_names: list) -> gum.BayesNet
     return bn
 
 
-def run_cmm(X: np.ndarray, features: list[str], forbidden_edges: set[tuple[int, int]], binary_indices: list[int], noise_seed: int, noise_std: float = 0.05):
+def run_cmm(X: np.ndarray, forbidden_edges: set[tuple[int, int]], binary_indices: list[int], noise_seed: int, noise_std: float = 0.05):
     """Run CMM with added noise to binary columns. Returns fitted model."""
     rng = np.random.default_rng(noise_seed)
     X_fit = X.astype(float).copy()
@@ -28,22 +28,22 @@ def run_cmm(X: np.ndarray, features: list[str], forbidden_edges: set[tuple[int, 
     return cmm
 
 
-def bootstrap_cmm(X: np.ndarray, features: list[str], forbidden_edges: set[tuple[int, int]], binary_indices: list[int], n_runs: int, noise_std: float = 0.05, noise_seed: int = 42) -> list:
+def bootstrap_cmm(X: np.ndarray, forbidden_edges: set[tuple[int, int]], binary_indices: list[int], n_runs: int, noise_std: float = 0.05, noise_seed: int = 42) -> list:
     """Vary patients (resample with replacement), fix noise. Measures sampling variability."""
     rng = np.random.default_rng(0)
     cmm_list = []
     for _ in range(n_runs):
         X_boot = X[rng.choice(len(X), size=len(X), replace=True)]
-        cmm = run_cmm(X_boot, features, forbidden_edges, binary_indices, noise_seed=noise_seed, noise_std=noise_std)
+        cmm = run_cmm(X_boot, forbidden_edges, binary_indices, noise_seed=noise_seed, noise_std=noise_std)
         cmm_list.append(cmm)
     return cmm_list
 
 
-def noise_robustness_cmm(X: np.ndarray, features: list[str], forbidden_edges: set[tuple[int, int]], binary_indices: list[int], n_runs: int, noise_std: float = 0.05) -> list:
+def noise_robustness_cmm(X: np.ndarray, forbidden_edges: set[tuple[int, int]], binary_indices: list[int], n_runs: int, noise_std: float = 0.05) -> list:
     """Fix patients, vary noise seed. Measures sensitivity to binary column noise."""
     cmm_list = []
     for seed in range(n_runs):
-        cmm = run_cmm(X, features, forbidden_edges, binary_indices, noise_seed=seed, noise_std=noise_std)
+        cmm = run_cmm(X, forbidden_edges, binary_indices, noise_seed=seed, noise_std=noise_std)
         cmm_list.append(cmm)
     return cmm_list
 
@@ -66,20 +66,25 @@ def get_stable_edges(cmm_list: list, features: list[str], threshold: float = 0.5
     return df[df['frequency'] > threshold].sort_values('frequency', ascending=False).reset_index(drop=True)
 
 
-def visualize_stable_bn(cmm_list: list, features: list[str], threshold: float = 0.5, size: str = "30"):
-    """Visualize stable edges as a BN. Edges present in more than threshold fraction of runs are included."""
+def build_stable_bn(cmm_list: list, features: list[str], threshold: float = 0.5) -> gum.BayesNet:
+    """Build a BayesNet from edges present in more than threshold fraction of runs."""
     stable_edges = get_stable_edges(cmm_list, features, threshold)
     bn = gum.BayesNet()
     for feature in features:
         bn.add(gum.LabelizedVariable(feature, feature, 2))
     for _, row in stable_edges.iterrows():
         bn.addArc(row['source'], row['target'])
-    gnb.showBN(bn, size=size)
+    return bn
+
+
+def visualize_stable_bn(cmm_list: list, features: list[str], threshold: float = 0.5, size: str = "30"):
+    """Visualize stable edges as a BN. Edges present in more than threshold fraction of runs are included."""
+    gnb.showBN(build_stable_bn(cmm_list, features, threshold), size=size)
 
 
 def run_and_save(X: np.ndarray, features: list[str], forbidden_edges: set[tuple[int, int]], binary_indices: list[int], noise_seed: int, save: bool = False, output_dir: str = '../results/preliminary', size: str = "60", noise_std: float = 0.05):
     """Run CMM and return BN visualization. Optionally save edges to CSV and graph to bifxml."""
-    cmm = run_cmm(X, features, forbidden_edges, binary_indices, noise_seed=noise_seed, noise_std=noise_std)
+    cmm = run_cmm(X, forbidden_edges, binary_indices, noise_seed=noise_seed, noise_std=noise_std)
     bn = topic_graph_to_bn(cmm.dag, features)
 
     if save:
@@ -95,7 +100,7 @@ def run_and_save(X: np.ndarray, features: list[str], forbidden_edges: set[tuple[
 def bootstrap_and_save(X: np.ndarray, features: list[str], forbidden_edges: set[tuple[int, int]], binary_indices: list[int], n_runs: int, threshold: float = 0.5, size: str = "60", noise_std: float = 0.05):
     """Run bootstrap, save edge stability CSVs and stable graph, visualize stable BN."""
     output_dir = f'../results/bootstrap_{datetime.now().strftime("%Y%m%d_%H%M")}'
-    cmm_list = bootstrap_cmm(X, features, forbidden_edges, binary_indices, n_runs=n_runs, noise_std=noise_std)
+    cmm_list = bootstrap_cmm(X, forbidden_edges, binary_indices, n_runs=n_runs, noise_std=noise_std)
 
     os.makedirs(output_dir, exist_ok=True)
     df_stability = edge_stability(cmm_list, features)
@@ -104,12 +109,7 @@ def bootstrap_and_save(X: np.ndarray, features: list[str], forbidden_edges: set[
     stable = get_stable_edges(cmm_list, features, threshold=threshold)
     stable.to_csv(os.path.join(output_dir, 'stable_edges.csv'), index=False)
 
-    bn = gum.BayesNet()
-    for feature in features:
-        bn.add(gum.LabelizedVariable(feature, feature, 2))
-    for _, row in stable.iterrows():
-        bn.addArc(row['source'], row['target'])
+    bn = build_stable_bn(cmm_list, features, threshold=threshold)
     gum.saveBN(bn, os.path.join(output_dir, 'stable_graph.bifxml'))
-
-    visualize_stable_bn(cmm_list, features, threshold=threshold, size=size)
+    gnb.showBN(bn, size=size)
     return cmm_list, df_stability
