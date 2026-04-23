@@ -5,6 +5,7 @@ import pyagrum as gum
 import pyagrum.lib.notebook as gnb
 import numpy as np
 import pandas as pd
+from rpy2.rinterface_lib.embedded import RRuntimeError
 from src.exp.algos import CD
 
 
@@ -33,9 +34,14 @@ def bootstrap_cmm(X: np.ndarray, forbidden_edges: set[tuple[int, int]], binary_i
     rng = np.random.default_rng(0)
     cmm_list = []
     for _ in range(n_runs):
-        X_boot = X[rng.choice(len(X), size=len(X), replace=True)]
-        cmm = run_cmm(X_boot, forbidden_edges, binary_indices, noise_seed=noise_seed, noise_std=noise_std)
-        cmm_list.append(cmm)
+        while True:
+            X_boot = X[rng.choice(len(X), size=len(X), replace=True)]
+            try:
+                cmm = run_cmm(X_boot, forbidden_edges, binary_indices, noise_seed=noise_seed, noise_std=noise_std)
+                cmm_list.append(cmm)
+                break
+            except RRuntimeError:
+                continue
     return cmm_list
 
 

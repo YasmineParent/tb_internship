@@ -13,3 +13,4 @@ data/synthetic/*
 .claude/
 results/preliminary/*
 !results/preliminary/.gitkeep
+results/bootstrap_*/
