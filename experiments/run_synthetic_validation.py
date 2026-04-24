@@ -73,7 +73,7 @@ def print_summary(records_old: list[dict], records_new: list[dict]):
     df_old = pd.DataFrame(records_old)
     df_new = pd.DataFrame(records_new)
     cols = ['direct_F1', 'bin_bin_F1', 'chain_F1']
-    print("\n=== Summary ===")
+    print("\nSummary")
     print("           " + "  ".join(f"{c:>12}" for c in cols))
     print("Gaussian:  " + "  ".join(f"{df_old[c].mean():>12.3f}" for c in cols))
     print("Logistic:  " + "  ".join(f"{df_new[c].mean():>12.3f}" for c in cols))
@@ -93,11 +93,11 @@ def main():
     with open(os.path.join(output_dir, 'config.txt'), 'w') as f:
         f.write(f"n_mutations={args.n_mutations}\nn_seeds={args.n_seeds}\nn_bootstrap={args.n_bootstrap}\nthreshold={args.threshold}\n")
 
-    print("=== Gaussian noise (old model) ===", flush=True)
+    print("Gaussian noise (old model)", flush=True)
     records_old = run_experiment(args.n_mutations, args.n_seeds, args.n_bootstrap, args.threshold, use_logistic=False)
     pd.DataFrame(records_old).to_csv(os.path.join(output_dir, 'results_gaussian.csv'), index=False)
 
-    print("=== Logistic FLXMRglm (new model) ===", flush=True)
+    print("Logistic FLXMRglm (new model)", flush=True)
     records_new = run_experiment(args.n_mutations, args.n_seeds, args.n_bootstrap, args.threshold, use_logistic=True)
     pd.DataFrame(records_new).to_csv(os.path.join(output_dir, 'results_logistic.csv'), index=False)
 
@@ -107,12 +107,12 @@ def main():
 
 if __name__ == '__main__':
     if '--smoke' in sys.argv:
-        print("=== Smoke test (n_mutations=4, n_seeds=2, n_bootstrap=3) ===", flush=True)
+        print("Smoke test (n_mutations=4, n_seeds=2, n_bootstrap=3)", flush=True)
         records_old = run_experiment(4, n_seeds=2, n_bootstrap=3, threshold=0.5, use_logistic=False)
         records_new = run_experiment(4, n_seeds=2, n_bootstrap=3, threshold=0.5, use_logistic=True)
         print_summary(records_old, records_new)
     elif '--single_run' in sys.argv:
-        print("=== Single run (n_mutations=8, n_seeds=1, no bootstrap) ===", flush=True)
+        print("Single run (n_mutations=8, n_seeds=1, no bootstrap)", flush=True)
         records_old = run_single(8, n_seeds=1, use_logistic=False)
         records_new = run_single(8, n_seeds=1, use_logistic=True)
         print_summary(records_old, records_new)
