@@ -1,6 +1,5 @@
 import os
 from datetime import datetime
-import networkx as nx
 import pyagrum as gum
 import pyagrum.lib.notebook as gnb
 import numpy as np
@@ -9,29 +8,22 @@ from rpy2.rinterface_lib.embedded import RRuntimeError
 from src.exp.algos import CD
 
 
-def topic_graph_to_bn(topic_graph: nx.DiGraph, node_names: list) -> gum.BayesNet:
-    """Convert a TopologicalCausalMixture topic_graph to a pyAgrum BayesNet for visualization."""
-    bn = gum.BayesNet()
-    for i in topic_graph.nodes:
-        bn.add(gum.LabelizedVariable(str(node_names[i]), str(node_names[i]), 2))
-    for i, j in topic_graph.edges:
-        bn.addArc(str(node_names[i]), str(node_names[j]))
-    return bn
-
-
-def run_cmm(X: np.ndarray, forbidden_edges: set[tuple[int, int]], binary_indices: list[int] = [], noise_seed: int = 0, noise_std: float = 0.05):
-    """Run CMM. If binary_indices is provided, adds Gaussian noise to those columns (legacy workaround).
-    Without binary_indices, relies on FLXMRglm(family='binomial') for binary targets."""
+def run_cmm(X: np.ndarray, forbidden_edges: set[tuple[int, int]], use_logistic: bool = True, noise_seed: int = 0, noise_std: float = 0.05):
+    """Run CMM on X.
+    use_logistic=True: FLXMRglm(family='binomial') used for binary targets, no noise needed.
+    use_logistic=False: Gaussian driver throughout; binary columns auto-detected and noise added to prevent variance collapse."""
     X_fit = X.astype(float).copy()
-    if binary_indices:
+    if not use_logistic:
         rng = np.random.default_rng(noise_seed)
-        X_fit[:, binary_indices] += rng.normal(0, noise_std, (X_fit.shape[0], len(binary_indices)))
+        binary_cols = [j for j in range(X_fit.shape[1]) if np.all(np.isin(X[:, j], [0, 1]))]
+        if binary_cols:
+            X_fit[:, binary_cols] += rng.normal(0, noise_std, (X_fit.shape[0], len(binary_cols)))
     cmm = CD.CausalMixtures.get_method()
-    cmm.fit(X_fit, forbidden_edges=forbidden_edges)
+    cmm.fit(X_fit, forbidden_edges=forbidden_edges, use_logistic=use_logistic)
     return cmm
 
 
-def bootstrap_cmm(X: np.ndarray, forbidden_edges: set[tuple[int, int]], n_runs: int, binary_indices: list[int] = [], noise_std: float = 0.05, noise_seed: int = 42) -> list:
+def bootstrap_cmm(X: np.ndarray, forbidden_edges: set[tuple[int, int]], n_runs: int, use_logistic: bool = True) -> list:
     """Vary patients (resample with replacement). Measures sampling variability."""
     rng = np.random.default_rng(0)
     cmm_list = []
@@ -39,20 +31,11 @@ def bootstrap_cmm(X: np.ndarray, forbidden_edges: set[tuple[int, int]], n_runs: 
         while True:
             X_boot = X[rng.choice(len(X), size=len(X), replace=True)]
             try:
-                cmm = run_cmm(X_boot, forbidden_edges, binary_indices=binary_indices, noise_seed=noise_seed, noise_std=noise_std)
+                cmm = run_cmm(X_boot, forbidden_edges, use_logistic=use_logistic)
                 cmm_list.append(cmm)
                 break
             except RRuntimeError:
                 continue
-    return cmm_list
-
-
-def noise_robustness_cmm(X: np.ndarray, forbidden_edges: set[tuple[int, int]], binary_indices: list[int], n_runs: int, noise_std: float = 0.05) -> list:
-    """Fix patients, vary noise seed. Measures sensitivity to binary column noise."""
-    cmm_list = []
-    for seed in range(n_runs):
-        cmm = run_cmm(X, forbidden_edges, binary_indices=binary_indices, noise_seed=seed, noise_std=noise_std)
-        cmm_list.append(cmm)
     return cmm_list
 
 
@@ -74,23 +57,27 @@ def get_stable_edges(cmm_list: list, features: list[str], threshold: float = 0.5
     return df[df['frequency'] > threshold].sort_values('frequency', ascending=False).reset_index(drop=True)
 
 
-def build_stable_bn(cmm_list: list, features: list[str], threshold: float = 0.5) -> gum.BayesNet:
+def build_stable_bn(cmm_list: list, features: list[str], threshold: float = 0.5, continuous_features: list[str] = None) -> gum.BayesNet:
     """Build a BayesNet from edges present in more than threshold fraction of runs."""
     stable_edges = get_stable_edges(cmm_list, features, threshold)
+    continuous_features = set(continuous_features or [])
     bn = gum.BayesNet()
     for feature in features:
-        bn.add(gum.LabelizedVariable(feature, feature, 2))
+        if feature in continuous_features:
+            bn.add(gum.RangeVariable(feature, feature, 0, 1))
+        else:
+            bn.add(gum.LabelizedVariable(feature, feature, 2))
     for _, row in stable_edges.iterrows():
         bn.addArc(row['source'], row['target'])
     return bn
 
 
-def visualize_stable_bn(cmm_list: list, features: list[str], threshold: float = 0.5, size: str = "30"):
+def visualize_stable_bn(cmm_list: list, features: list[str], threshold: float = 0.5, size: str = "30", continuous_features: list[str] = None):
     """Visualize stable edges as a BN."""
-    gnb.showBN(build_stable_bn(cmm_list, features, threshold), size=size)
+    gnb.showBN(build_stable_bn(cmm_list, features, threshold, continuous_features=continuous_features), size=size)
 
 
-def save_bootstrap_results(cmm_list: list, features: list[str], threshold: float = 0.5, size: str = "60") -> tuple[str, pd.DataFrame]:
+def save_bootstrap_results(cmm_list: list, features: list[str], threshold: float = 0.5, size: str = "60", continuous_features: list[str] = None) -> tuple[str, pd.DataFrame]:
     """Save edge stability CSVs and stable graph to a timestamped results folder. Visualizes stable BN."""
     output_dir = f'../results/bootstrap_{datetime.now().strftime("%Y%m%d_%H%M")}'
     os.makedirs(output_dir, exist_ok=True)
@@ -101,7 +88,7 @@ def save_bootstrap_results(cmm_list: list, features: list[str], threshold: float
     stable = get_stable_edges(cmm_list, features, threshold=threshold)
     stable.to_csv(os.path.join(output_dir, 'stable_edges.csv'), index=False)
 
-    bn = build_stable_bn(cmm_list, features, threshold=threshold)
+    bn = build_stable_bn(cmm_list, features, threshold=threshold, continuous_features=continuous_features)
     gum.saveBN(bn, os.path.join(output_dir, 'stable_graph.bifxml'))
     gnb.showBN(bn, size=size)
 

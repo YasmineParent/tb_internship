@@ -59,9 +59,12 @@ class SyntheticData:
         self.binary_indices = list(range(n_mutations))
         self.X = np.column_stack(direct_roots + chain_roots + intermediates + independent + [y])
 
-        self.true_direct     = {(s, t) for s, t in self.true_edges if t == 'Y' and int(s.split('_')[1]) < self.n_quarter}
+        direct_names       = set(self.features[:self.n_quarter])
+        intermediate_names = set(self.features[2 * self.n_quarter:3 * self.n_quarter])
+        self.true_direct     = {(s, t) for s, t in self.true_edges if s in direct_names}
         self.true_bin_to_bin = {(s, t) for s, t in self.true_edges if t != 'Y'}
-        self.true_chain_cont = {(s, t) for s, t in self.true_edges if t == 'Y' and int(s.split('_')[1]) >= self.n_quarter}
+        self.true_chain_cont = {(s, t) for s, t in self.true_edges if s in intermediate_names}
+        self.independent_features = self.features[3 * self.n_quarter:n_mutations]
 
     def visualize_true_dag(self, size: str = "20") -> None:
         """Visualize the true causal DAG."""
