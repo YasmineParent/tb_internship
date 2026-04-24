@@ -19,25 +19,27 @@ def topic_graph_to_bn(topic_graph: nx.DiGraph, node_names: list) -> gum.BayesNet
     return bn
 
 
-def run_cmm(X: np.ndarray, forbidden_edges: set[tuple[int, int]], binary_indices: list[int], noise_seed: int, noise_std: float = 0.05):
-    """Run CMM with added noise to binary columns. Returns fitted model."""
-    rng = np.random.default_rng(noise_seed)
+def run_cmm(X: np.ndarray, forbidden_edges: set[tuple[int, int]], binary_indices: list[int] = [], noise_seed: int = 0, noise_std: float = 0.05):
+    """Run CMM. If binary_indices is provided, adds Gaussian noise to those columns (legacy workaround).
+    Without binary_indices, relies on FLXMRglm(family='binomial') for binary targets."""
     X_fit = X.astype(float).copy()
-    X_fit[:, binary_indices] += rng.normal(0, noise_std, (X_fit.shape[0], len(binary_indices)))
+    if binary_indices:
+        rng = np.random.default_rng(noise_seed)
+        X_fit[:, binary_indices] += rng.normal(0, noise_std, (X_fit.shape[0], len(binary_indices)))
     cmm = CD.CausalMixtures.get_method()
     cmm.fit(X_fit, forbidden_edges=forbidden_edges)
     return cmm
 
 
-def bootstrap_cmm(X: np.ndarray, forbidden_edges: set[tuple[int, int]], binary_indices: list[int], n_runs: int, noise_std: float = 0.05, noise_seed: int = 42) -> list:
-    """Vary patients (resample with replacement), fix noise. Measures sampling variability."""
+def bootstrap_cmm(X: np.ndarray, forbidden_edges: set[tuple[int, int]], n_runs: int, binary_indices: list[int] = [], noise_std: float = 0.05, noise_seed: int = 42) -> list:
+    """Vary patients (resample with replacement). Measures sampling variability."""
     rng = np.random.default_rng(0)
     cmm_list = []
     for _ in range(n_runs):
         while True:
             X_boot = X[rng.choice(len(X), size=len(X), replace=True)]
             try:
-                cmm = run_cmm(X_boot, forbidden_edges, binary_indices, noise_seed=noise_seed, noise_std=noise_std)
+                cmm = run_cmm(X_boot, forbidden_edges, binary_indices=binary_indices, noise_seed=noise_seed, noise_std=noise_std)
                 cmm_list.append(cmm)
                 break
             except RRuntimeError:
@@ -49,7 +51,7 @@ def noise_robustness_cmm(X: np.ndarray, forbidden_edges: set[tuple[int, int]], b
     """Fix patients, vary noise seed. Measures sensitivity to binary column noise."""
     cmm_list = []
     for seed in range(n_runs):
-        cmm = run_cmm(X, forbidden_edges, binary_indices, noise_seed=seed, noise_std=noise_std)
+        cmm = run_cmm(X, forbidden_edges, binary_indices=binary_indices, noise_seed=seed, noise_std=noise_std)
         cmm_list.append(cmm)
     return cmm_list
 
@@ -84,31 +86,15 @@ def build_stable_bn(cmm_list: list, features: list[str], threshold: float = 0.5)
 
 
 def visualize_stable_bn(cmm_list: list, features: list[str], threshold: float = 0.5, size: str = "30"):
-    """Visualize stable edges as a BN. Edges present in more than threshold fraction of runs are included."""
+    """Visualize stable edges as a BN."""
     gnb.showBN(build_stable_bn(cmm_list, features, threshold), size=size)
 
 
-def run_and_save(X: np.ndarray, features: list[str], forbidden_edges: set[tuple[int, int]], binary_indices: list[int], noise_seed: int, save: bool = False, output_dir: str = '../results/preliminary', size: str = "60", noise_std: float = 0.05):
-    """Run CMM and return BN visualization. Optionally save edges to CSV and graph to bifxml."""
-    cmm = run_cmm(X, forbidden_edges, binary_indices, noise_seed=noise_seed, noise_std=noise_std)
-    bn = topic_graph_to_bn(cmm.dag, features)
-
-    if save:
-        os.makedirs(output_dir, exist_ok=True)
-        edges = [(features[i], features[j]) for i, j in cmm.dag.edges()]
-        pd.DataFrame(edges, columns=['source', 'target']).to_csv(os.path.join(output_dir, 'edges.csv'), index=False)
-        gum.saveBN(bn, os.path.join(output_dir, 'causal_graph.bifxml'))
-
-    gnb.showBN(bn, size=size)
-    return cmm
-
-
-def bootstrap_and_save(X: np.ndarray, features: list[str], forbidden_edges: set[tuple[int, int]], binary_indices: list[int], n_runs: int, threshold: float = 0.5, size: str = "60", noise_std: float = 0.05):
-    """Run bootstrap, save edge stability CSVs and stable graph, visualize stable BN."""
+def save_bootstrap_results(cmm_list: list, features: list[str], threshold: float = 0.5, size: str = "60") -> tuple[str, pd.DataFrame]:
+    """Save edge stability CSVs and stable graph to a timestamped results folder. Visualizes stable BN."""
     output_dir = f'../results/bootstrap_{datetime.now().strftime("%Y%m%d_%H%M")}'
-    cmm_list = bootstrap_cmm(X, forbidden_edges, binary_indices, n_runs=n_runs, noise_std=noise_std)
-
     os.makedirs(output_dir, exist_ok=True)
+
     df_stability = edge_stability(cmm_list, features)
     df_stability.to_csv(os.path.join(output_dir, 'edge_stability.csv'), index=False)
 
@@ -118,4 +104,5 @@ def bootstrap_and_save(X: np.ndarray, features: list[str], forbidden_edges: set[
     bn = build_stable_bn(cmm_list, features, threshold=threshold)
     gum.saveBN(bn, os.path.join(output_dir, 'stable_graph.bifxml'))
     gnb.showBN(bn, size=size)
-    return cmm_list, df_stability
+
+    return output_dir, df_stability
