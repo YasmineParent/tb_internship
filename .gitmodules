@@ -1,3 +1,6 @@
 [submodule "external/cmm"]
 	path = external/cmm
 	url = git@github.com:YasmineParent/cmm.git
+[submodule "external/fasterrisk"]
+	path = external/fasterrisk
+	url = git@github.com:YasmineParent/FasterRisk.git
