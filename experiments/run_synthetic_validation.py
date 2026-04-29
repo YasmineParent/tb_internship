@@ -37,23 +37,19 @@ def run_experiment(n_mutations: int, n_seeds: int, n_bootstrap: int, threshold: 
 
         stable = get_stable_edges(cmm_list, data.features, threshold=threshold)
         stable_set = set(zip(stable['source'], stable['target']))
-        pr_d,  re_d,  f1_d  = eval_recovery(stable_set, data.true_direct)
+        pr_d,  re_d,  f1_d  = eval_recovery(stable_set, data.true_bin_to_cont)
         pr_bb, re_bb, f1_bb = eval_recovery(stable_set, data.true_bin_to_bin)
-        pr_cc, re_cc, f1_cc = eval_recovery(stable_set, data.true_chain_cont)
 
-        bb_freq = sum(freq_map.get(e, 0) for e in data.true_bin_to_bin) / max(len(data.true_bin_to_bin), 1)
-        d_freq  = sum(freq_map.get(e, 0) for e in data.true_direct)     / max(len(data.true_direct), 1)
-        cc_freq = sum(freq_map.get(e, 0) for e in data.true_chain_cont) / max(len(data.true_chain_cont), 1)
+        bb_freq = sum(freq_map.get(e, 0) for e in data.true_bin_to_bin)  / max(len(data.true_bin_to_bin), 1)
+        d_freq  = sum(freq_map.get(e, 0) for e in data.true_bin_to_cont) / max(len(data.true_bin_to_cont), 1)
 
         metrics = {
             'seed': seed,
-            'direct_F1': f1_d,   'bin_bin_F1': f1_bb,  'chain_F1': f1_cc,
-            'direct_P': pr_d,    'bin_bin_P': pr_bb,    'chain_P': pr_cc,
-            'direct_R': re_d,    'bin_bin_R': re_bb,    'chain_R': re_cc,
-            'direct_freq': d_freq, 'bin_bin_freq': bb_freq, 'chain_freq': cc_freq,
+            'bin_cont_F1': f1_d,  'bin_cont_P': pr_d,  'bin_cont_R': re_d,  'bin_cont_freq': d_freq,
+            'bin_bin_F1':  f1_bb, 'bin_bin_P':  pr_bb, 'bin_bin_R':  re_bb, 'bin_bin_freq':  bb_freq,
         }
         records.append(metrics)
-        print(f"    direct_F1={f1_d}  bin_bin_F1={f1_bb}  chain_F1={f1_cc}  |  bin_bin_freq={bb_freq:.2f}", flush=True)
+        print(f"    bin_cont_F1={f1_d}  bin_bin_F1={f1_bb}  |  bin_bin_freq={bb_freq:.2f}", flush=True)
         if output_path:
             os.makedirs(os.path.dirname(output_path), exist_ok=True)
             pd.DataFrame([metrics]).to_csv(output_path, mode='a', header=not os.path.exists(output_path), index=False)
@@ -69,23 +65,22 @@ def run_single(n_mutations: int, n_seeds: int, use_logistic: bool) -> list[dict]
         data = SyntheticData(n_mutations, seed=seed)
         cmm = run_cmm(data.X, set(), use_logistic=use_logistic)
         recovered = {(data.features[i], data.features[j]) for i, j in cmm.dag.edges()}
-        pr_d,  re_d,  f1_d  = eval_recovery(recovered, data.true_direct)
+        pr_d,  re_d,  f1_d  = eval_recovery(recovered, data.true_bin_to_cont)
         pr_bb, re_bb, f1_bb = eval_recovery(recovered, data.true_bin_to_bin)
-        pr_cc, re_cc, f1_cc = eval_recovery(recovered, data.true_chain_cont)
         metrics = {
             'seed': seed,
-            'direct_F1': f1_d, 'bin_bin_F1': f1_bb, 'chain_F1': f1_cc,
+            'bin_cont_F1': f1_d, 'bin_bin_F1': f1_bb,
         }
         records.append(metrics)
-        print(f"    direct_F1={f1_d}  bin_bin_F1={f1_bb}  chain_F1={f1_cc}", flush=True)
+        print(f"    bin_cont_F1={f1_d}  bin_bin_F1={f1_bb}", flush=True)
     return records
 
 
 def print_summary(records_old: list[dict], records_new: list[dict]):
     df_old = pd.DataFrame(records_old)
     df_new = pd.DataFrame(records_new)
-    f1_cols   = ['direct_F1', 'bin_bin_F1', 'chain_F1']
-    freq_cols = ['direct_freq', 'bin_bin_freq', 'chain_freq']
+    f1_cols   = ['bin_cont_F1', 'bin_bin_F1']
+    freq_cols = ['bin_cont_freq', 'bin_bin_freq']
     print("\nSummary (F1 on stable edges)")
     print("           " + "  ".join(f"{c:>12}" for c in f1_cols))
     print("Gaussian:  " + "  ".join(f"{df_old[c].mean():>12.3f}" for c in f1_cols))

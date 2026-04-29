@@ -1,8 +1,7 @@
-import numpy as np
 import networkx as nx
 import pandas as pd
+import numpy as np
 import matplotlib.pyplot as plt
-from src_tb.data.synthetic import SyntheticData
 
 
 def eval_recovery(stable_set: set, true_edges: set) -> tuple[float, float, float]:
@@ -17,7 +16,7 @@ def eval_recovery(stable_set: set, true_edges: set) -> tuple[float, float, float
 
 
 def compute_graph_metrics(recovered: set, true_edges: set, features: list) -> dict:
-    """Compute SD, SHD, SC, F1, TPR, MCC using the CMM paper's graph metric library."""
+    """Compute SD, SHD, SC, F1, TPR, FPR using the CMM paper's graph metric library."""
     from src.mixtures.util.util import nxdigraph_to_lmg, compare_lmg_DAG
     name_to_idx = {f: i for i, f in enumerate(features)}
     nodes = list(range(len(features)))
@@ -34,39 +33,6 @@ def compute_graph_metrics(recovered: set, true_edges: set, features: list) -> di
             rec_g.add_edge(name_to_idx[s], name_to_idx[t])
 
     return compare_lmg_DAG(nxdigraph_to_lmg(true_g), nxdigraph_to_lmg(rec_g))
-
-
-def eval_all(stable_set: set, data: SyntheticData) -> dict:
-    """Compute all graph recovery metrics broken down by edge type."""
-    pr_d,  re_d,  f1_d  = eval_recovery(stable_set, data.true_direct)
-    pr_bb, re_bb, f1_bb = eval_recovery(stable_set, data.true_bin_to_bin)
-    pr_cc, re_cc, f1_cc = eval_recovery(stable_set, data.true_chain_cont)
-
-    fp_independent = len({(s, t) for s, t in stable_set
-                          if s in data.independent_features or t in data.independent_features})
-
-    graph = compute_graph_metrics(stable_set, data.true_edges, data.features)
-
-    return {
-        'direct_P': pr_d,    'direct_R': re_d,    'direct_F1': f1_d,
-        'bin_bin_P': pr_bb,  'bin_bin_R': re_bb,  'bin_bin_F1': f1_bb,
-        'chain_P': pr_cc,    'chain_R': re_cc,    'chain_F1': f1_cc,
-        'fp_independent': fp_independent,
-        'sd':  round(graph.get('sd',  float('nan')), 3),
-        'shd': round(graph.get('shd', float('nan')), 3),
-        'sc':  round(graph.get('sc',  float('nan')), 3),
-        'f1':  round(graph.get('f1',  float('nan')), 3),
-        'tpr': round(graph.get('tpr', float('nan')), 3),
-        'mcc': round(graph.get('mcc', float('nan')), 3),
-    }
-
-
-def summary_table(records: list[dict]) -> pd.DataFrame:
-    """Mean ± std across seeds for all numeric metrics."""
-    df = pd.DataFrame(records).select_dtypes(include='number')
-    table = pd.DataFrame({'mean': df.mean().round(3), 'std': df.std().round(3)})
-    table['mean ± std'] = table.apply(lambda r: f"{r['mean']:.3f} ± {r['std']:.3f}", axis=1)
-    return table[['mean ± std']]
 
 
 def plot_comparison(records_old: list[dict], records_new: list[dict], metrics: list[str], labels: list[str],
