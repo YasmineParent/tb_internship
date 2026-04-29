@@ -1,19 +1,34 @@
 # tb_internship
 
-Internship project.
+Causal inference for drug-resistant tuberculosis biomarker identification.
 
 ## Setup
 
-Install uv (https://astral.sh/uv), then:
+Install [uv](https://astral.sh/uv), then:
 
+    git clone --recurse-submodules <this repo>
     uv sync
-    uv run jupyter lab
 
-## Structure
+The `external/cmm` submodule is required and is auto-injected onto `sys.path` by `src_tb/__init__.py`.
 
-    notebooks/   # Jupyter notebooks
-    src/         # Reusable Python modules
+## Layout
+
+    src_tb/                       reusable package
+      causal_recovery/            CMM bootstrap, evaluation, plotting
+      data/                       synthetic generators and TB data loaders
+      config.py                   shared experiment defaults / sweeps
+    experiments/
+      run_synthetic_validation.py A/B Gaussian vs FLXMRglm on synthetic data
+      run_parameter_sweep.py      Figure-D.2-style sweep over NX, pG, S, NZ, pZ
+    notebooks/                    Jupyter notebooks
     data/
-      raw/       # Original data (not versioned)
-      processed/ # Cleaned/transformed data (not versioned)
-    reports/     # Figures, outputs
+      real/{raw,processed}/       TB data (gitignored)
+      synthetic/                  generated (gitignored)
+    external/{cmm,fasterrisk}/    git submodules
+    results/                      timestamped run outputs (gitignored)
+
+## Running
+
+    uv run python experiments/run_synthetic_validation.py --smoke
+    uv run python experiments/run_parameter_sweep.py --n_seeds 3
+    uv run jupyter lab

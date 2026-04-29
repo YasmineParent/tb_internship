@@ -13,9 +13,9 @@ import os
 import argparse
 import warnings
 from datetime import datetime
+from pathlib import Path
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'external', 'cmm'))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 warnings.filterwarnings('ignore')
 
@@ -24,6 +24,8 @@ from src_tb.data.synthetic import SyntheticData
 from src_tb.causal_recovery.evaluation import eval_recovery
 from src_tb.causal_recovery.cmm_utils import run_cmm, bootstrap_cmm, get_stable_edges, edge_stability
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
 
 def run_experiment(n_mutations: int, n_seeds: int, n_bootstrap: int, threshold: float, use_logistic: bool, output_path: str = None) -> list[dict]:
     label = 'logistic' if use_logistic else 'gaussian'
@@ -31,7 +33,8 @@ def run_experiment(n_mutations: int, n_seeds: int, n_bootstrap: int, threshold: 
     for seed in range(n_seeds):
         print(f"  [{label}] seed {seed + 1}/{n_seeds}", flush=True)
         data = SyntheticData(n_mutations, seed=seed)
-        cmm_list = bootstrap_cmm(data.X, set(), n_runs=n_bootstrap, use_logistic=use_logistic)
+        cmm_list = bootstrap_cmm(data.X, data.forbidden_edges, n_runs=n_bootstrap,
+                                  use_logistic=use_logistic, seed=seed)
         df_freq = edge_stability(cmm_list, data.features)
         freq_map = {(r['source'], r['target']): r['frequency'] for _, r in df_freq.iterrows()}
 
@@ -49,7 +52,7 @@ def run_experiment(n_mutations: int, n_seeds: int, n_bootstrap: int, threshold: 
             'bin_bin_F1':  f1_bb, 'bin_bin_P':  pr_bb, 'bin_bin_R':  re_bb, 'bin_bin_freq':  bb_freq,
         }
         records.append(metrics)
-        print(f"    bin_cont_F1={f1_d}  bin_bin_F1={f1_bb}  |  bin_bin_freq={bb_freq:.2f}", flush=True)
+        print(f"    bin_cont_F1={f1_d:.3f}  bin_bin_F1={f1_bb:.3f}  |  bin_bin_freq={bb_freq:.2f}", flush=True)
         if output_path:
             os.makedirs(os.path.dirname(output_path), exist_ok=True)
             pd.DataFrame([metrics]).to_csv(output_path, mode='a', header=not os.path.exists(output_path), index=False)
@@ -63,7 +66,7 @@ def run_single(n_mutations: int, n_seeds: int, use_logistic: bool) -> list[dict]
     for seed in range(n_seeds):
         print(f"  [{label}] seed {seed + 1}/{n_seeds}", flush=True)
         data = SyntheticData(n_mutations, seed=seed)
-        cmm = run_cmm(data.X, set(), use_logistic=use_logistic)
+        cmm = run_cmm(data.X, data.forbidden_edges, use_logistic=use_logistic)
         recovered = {(data.features[i], data.features[j]) for i, j in cmm.dag.edges()}
         pr_d,  re_d,  f1_d  = eval_recovery(recovered, data.true_bin_to_cont)
         pr_bb, re_bb, f1_bb = eval_recovery(recovered, data.true_bin_to_bin)
@@ -72,7 +75,7 @@ def run_single(n_mutations: int, n_seeds: int, use_logistic: bool) -> list[dict]
             'bin_cont_F1': f1_d, 'bin_bin_F1': f1_bb,
         }
         records.append(metrics)
-        print(f"    bin_cont_F1={f1_d}  bin_bin_F1={f1_bb}", flush=True)
+        print(f"    bin_cont_F1={f1_d:.3f}  bin_bin_F1={f1_bb:.3f}", flush=True)
     return records
 
 
@@ -92,44 +95,48 @@ def print_summary(records_old: list[dict], records_new: list[dict]):
         print("Logistic:  " + "  ".join(f"{df_new[c].mean():>12.3f}" for c in freq_cols))
 
 
-def main():
+def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--n_mutations', type=int, default=8)
     parser.add_argument('--n_seeds',     type=int, default=20)
     parser.add_argument('--n_bootstrap', type=int, default=30)
     parser.add_argument('--threshold',   type=float, default=0.5)
-    args = parser.parse_args()
+    parser.add_argument('--smoke',       action='store_true', help='quick bootstrap sanity check (overrides defaults)')
+    parser.add_argument('--single_run',  action='store_true', help='no bootstrap, single CMM fit per seed')
+    return parser.parse_args()
 
-    output_dir = os.path.abspath(f'results/synthetic_validation_{datetime.now().strftime("%Y%m%d_%H%M")}')
 
-    os.makedirs(output_dir, exist_ok=True)
+def main():
+    args = parse_args()
 
-    with open(os.path.join(output_dir, 'config.txt'), 'w') as f:
+    if args.smoke:
+        args.n_mutations, args.n_seeds, args.n_bootstrap = 4, 2, 3
+        print("Smoke test (n_mutations=4, n_seeds=2, n_bootstrap=3)", flush=True)
+
+    if args.single_run:
+        print(f"Single run (n_mutations={args.n_mutations}, n_seeds={args.n_seeds}, no bootstrap)", flush=True)
+        records_old = run_single(args.n_mutations, args.n_seeds, use_logistic=False)
+        records_new = run_single(args.n_mutations, args.n_seeds, use_logistic=True)
+        print_summary(records_old, records_new)
+        return
+
+    output_dir = REPO_ROOT / 'results' / f'synthetic_validation_{datetime.now().strftime("%Y%m%d_%H%M")}'
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    with open(output_dir / 'config.txt', 'w') as f:
         f.write(f"n_mutations={args.n_mutations}\nn_seeds={args.n_seeds}\nn_bootstrap={args.n_bootstrap}\nthreshold={args.threshold}\n")
 
     print("Gaussian noise (old model)", flush=True)
     records_old = run_experiment(args.n_mutations, args.n_seeds, args.n_bootstrap, args.threshold, use_logistic=False,
-                                 output_path=os.path.join(output_dir, 'results_gaussian.csv'))
+                                 output_path=str(output_dir / 'results_gaussian.csv'))
 
     print("Logistic FLXMRglm (new model)", flush=True)
     records_new = run_experiment(args.n_mutations, args.n_seeds, args.n_bootstrap, args.threshold, use_logistic=True,
-                                 output_path=os.path.join(output_dir, 'results_logistic.csv'))
+                                 output_path=str(output_dir / 'results_logistic.csv'))
 
-    os.makedirs(output_dir, exist_ok=True)
     print(f"\nResults saved to {output_dir}/", flush=True)
     print_summary(records_old, records_new)
 
 
 if __name__ == '__main__':
-    if '--smoke' in sys.argv:
-        print("Smoke test (n_mutations=4, n_seeds=2, n_bootstrap=3)", flush=True)
-        records_old = run_experiment(4, n_seeds=2, n_bootstrap=3, threshold=0.5, use_logistic=False)
-        records_new = run_experiment(4, n_seeds=2, n_bootstrap=3, threshold=0.5, use_logistic=True)
-        print_summary(records_old, records_new)
-    elif '--single_run' in sys.argv:
-        print("Single run (n_mutations=4, n_seeds=1, no bootstrap)", flush=True)
-        records_old = run_single(4, n_seeds=1, use_logistic=False)
-        records_new = run_single(4, n_seeds=1, use_logistic=True)
-        print_summary(records_old, records_new)
-    else:
-        main()
+    main()

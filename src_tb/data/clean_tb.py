@@ -1,4 +1,8 @@
+from pathlib import Path
+
 import pandas as pd
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def clean_mic(val: object) -> float:
@@ -30,5 +34,5 @@ def load_and_clean(raw_path: str) -> pd.DataFrame:
 
 
 if __name__ == '__main__':
-    df = load_and_clean('../data/real/raw/tb_pheno_geno.csv')
-    df.to_csv('../data/real/processed/tb_pheno_geno_clean.csv', index=False)
+    df = load_and_clean(str(REPO_ROOT / 'data/real/raw/tb_pheno_geno.csv'))
+    df.to_csv(REPO_ROOT / 'data/real/processed/tb_pheno_geno_clean.csv', index=False)

@@ -13,30 +13,22 @@ Usage:
 import sys
 import os
 import argparse
+import json
 import warnings
 from datetime import datetime
+from pathlib import Path
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'external', 'cmm'))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 warnings.filterwarnings('ignore')
 
 import pandas as pd
+from src_tb.config import DEFAULTS, SWEEPS, GRAPH_METRICS
 from src_tb.data.synthetic import SyntheticData
 from src_tb.causal_recovery.cmm_utils import run_cmm
 from src_tb.causal_recovery.evaluation import compute_graph_metrics, eval_recovery
 
-DEFAULTS = dict(n_obs=10, p_graph=0.4, p_mix=0.5, n_mix=2, k_components=2, n_samples=164)
-
-SWEEPS = {
-    'n_mix':     [2, 3, 4, 5],
-    'p_mix':     [0.0, 0.2, 0.4, 0.6, 0.8, 1.0],
-    'n_samples': [200, 400, 600, 800, 1000],
-    'n_obs':     [4, 6, 8, 10],
-    'p_graph':   [0.0, 0.2, 0.4, 0.6, 0.8, 1.0],
-}
-
-GRAPH_METRICS = ['sd', 'sc', 'shd', 'fpr', 'tpr', 'f1']
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def run_one(data: SyntheticData, use_logistic: bool) -> dict:
@@ -74,9 +66,12 @@ def main():
     parser.add_argument('--n_seeds', type=int, default=3)
     args = parser.parse_args()
 
-    output_dir = os.path.abspath(f'results/sweep_{datetime.now().strftime("%Y%m%d_%H%M")}')
-    os.makedirs(output_dir, exist_ok=True)
-    output_path = os.path.join(output_dir, 'results.csv')
+    output_dir = REPO_ROOT / 'results' / f'sweep_{datetime.now().strftime("%Y%m%d_%H%M")}'
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_path = str(output_dir / 'results.csv')
+
+    with open(output_dir / 'config.json', 'w') as f:
+        json.dump({'n_seeds': args.n_seeds, 'defaults': DEFAULTS, 'sweeps': SWEEPS}, f, indent=2)
 
     for param, values in SWEEPS.items():
         print(f"\nSweeping {param}", flush=True)

@@ -1,11 +1,17 @@
 import os
 from datetime import datetime
+from pathlib import Path
+
 import pyagrum as gum
 import pyagrum.lib.notebook as gnb
 import numpy as np
 import pandas as pd
 from rpy2.rinterface_lib.embedded import RRuntimeError
+
+import src_tb  # ensures external/cmm is on sys.path
 from src.exp.algos import CD
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def run_cmm(X: np.ndarray, forbidden_edges: set[tuple[int, int]], use_logistic: bool = True, noise_seed: int = 0, noise_std: float = 0.05):
@@ -23,12 +29,13 @@ def run_cmm(X: np.ndarray, forbidden_edges: set[tuple[int, int]], use_logistic: 
     return cmm
 
 
-def bootstrap_cmm(X: np.ndarray, forbidden_edges: set[tuple[int, int]], n_runs: int, use_logistic: bool = True) -> list:
+def bootstrap_cmm(X: np.ndarray, forbidden_edges: set[tuple[int, int]], n_runs: int,
+                  use_logistic: bool = True, seed: int = 0, max_retries: int = 20) -> list:
     """Vary patients (resample with replacement). Measures sampling variability."""
-    rng = np.random.default_rng(0)
+    rng = np.random.default_rng(seed)
     cmm_list = []
     for _ in range(n_runs):
-        while True:
+        for _ in range(max_retries):
             X_boot = X[rng.choice(len(X), size=len(X), replace=True)]
             try:
                 cmm = run_cmm(X_boot, forbidden_edges, use_logistic=use_logistic)
@@ -36,6 +43,8 @@ def bootstrap_cmm(X: np.ndarray, forbidden_edges: set[tuple[int, int]], n_runs: 
                 break
             except RRuntimeError:
                 continue
+        else:
+            raise RuntimeError(f"bootstrap_cmm: {max_retries} consecutive RRuntimeErrors")
     return cmm_list
 
 
@@ -60,6 +69,10 @@ def get_stable_edges(cmm_list: list, features: list[str], threshold: float = 0.5
 def build_stable_bn(cmm_list: list, features: list[str], threshold: float = 0.5, continuous_features: list[str] = None) -> gum.BayesNet:
     """Build a BayesNet from edges present in more than threshold fraction of runs."""
     stable_edges = get_stable_edges(cmm_list, features, threshold)
+    feature_set = set(features)
+    unknown = {e for row in stable_edges.itertuples() for e in (row.source, row.target) if e not in feature_set}
+    if unknown:
+        raise ValueError(f"stable edges reference unknown features: {sorted(unknown)}")
     continuous_features = set(continuous_features or [])
     bn = gum.BayesNet()
     for feature in features:
@@ -79,7 +92,7 @@ def visualize_stable_bn(cmm_list: list, features: list[str], threshold: float = 
 
 def save_bootstrap_results(cmm_list: list, features: list[str], threshold: float = 0.5, size: str = "60", continuous_features: list[str] = None) -> tuple[str, pd.DataFrame]:
     """Save edge stability CSVs and stable graph to a timestamped results folder. Visualizes stable BN."""
-    output_dir = f'../results/bootstrap_{datetime.now().strftime("%Y%m%d_%H%M")}'
+    output_dir = str(REPO_ROOT / 'results' / f'bootstrap_{datetime.now().strftime("%Y%m%d_%H%M")}')
     os.makedirs(output_dir, exist_ok=True)
 
     df_stability = edge_stability(cmm_list, features)

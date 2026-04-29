@@ -32,15 +32,8 @@ def plot_sweep(df: pd.DataFrame, metrics: list[str], metric_labels: dict,
                title: str = '', figsize_scale: float = 4.0):
     """Figure D.2-style grid: rows=metrics, columns=sweep parameters.
     df must have columns: param, value, model, and all metrics."""
-    from experiments.run_parameter_sweep import SWEEPS
+    from src_tb.config import SWEEPS, PARAM_LABELS
     params = list(SWEEPS.keys())
-    param_labels = {
-        'n_mix':     'Mix. Nodes (NZ)',
-        'p_mix':     'Mix. Edge Density (pZ)',
-        'n_samples': 'Sample Size (S)',
-        'n_obs':     'Obs. Nodes (NX)',
-        'p_graph':   'Obs. Edge Density (pG)',
-    }
 
     fig, axes = plt.subplots(len(metrics), len(params),
                               figsize=(figsize_scale * len(params), 3 * len(metrics)))
@@ -58,7 +51,7 @@ def plot_sweep(df: pd.DataFrame, metrics: list[str], metric_labels: dict,
                 ax.fill_between(means.index, means - stds, means + stds, alpha=0.2, color=color)
             ax.set_ylim(0, 1)
             if row == 0:
-                ax.set_title(param_labels.get(param, param), fontsize=9)
+                ax.set_title(PARAM_LABELS.get(param, param), fontsize=9)
             if col == 0:
                 ax.set_ylabel(metric_labels.get(metric, metric))
             if row == len(metrics) - 1:

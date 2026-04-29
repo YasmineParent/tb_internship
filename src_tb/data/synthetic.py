@@ -1,16 +1,13 @@
-import os
-import sys
+import random
+
 import numpy as np
 import networkx as nx
 import pyagrum as gum
 import pyagrum.lib.notebook as gnb
 from sklearn import preprocessing
 
-_cmm_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'external', 'cmm')
-if _cmm_path not in sys.path:
-    sys.path.insert(0, _cmm_path)
-
-from src.exp.gen.synthetic.data_gen_mixing import DataGen, unif_away_zero
+import src_tb  # ensures external/cmm is on sys.path
+from src.exp.gen.synthetic.data_gen_mixing import DataGen
 from src.exp.gen.generate import (
     gen_erdos_graph, gen_random_intervention_targets,
     FunType, NoiseType, IvType, IvMode, DagType
@@ -22,6 +19,8 @@ class BinaryDataGen(DataGen):
     Binary nodes use logistic link; continuous nodes use linear (iSCM applied only to continuous)."""
 
     def __init__(self, params: dict, graph: nx.DiGraph, binary_nodes: set, seed: int = 0, vb: int = 0):
+        # Reseed before gen_X so binomial draws are reproducible regardless of how much
+        # global state was consumed by upstream graph/intervention generation.
         np.random.seed(seed)
         self.binary_nodes = set(binary_nodes)
         super().__init__(params, graph, seed, vb)
@@ -83,27 +82,36 @@ class SyntheticData:
 
     def __init__(self, n_obs: int = 10, p_graph: float = 0.4, p_mix: float = 0.5,
                  n_mix: int = 1, k_components: int = 2, n_samples: int = 164, seed: int = 0):
-        np.random.seed(seed)
-        rng = np.random.default_rng(seed)
+        # Hermetic seeding: snapshot caller's RNG state for both np.random and stdlib random
+        # (upstream cmm uses both as globals), seed deterministically, restore on exit.
+        np_state = np.random.get_state()
+        py_state = random.getstate()
+        try:
+            np.random.seed(seed)
+            random.seed(seed)
+            rng = np.random.default_rng(seed)
 
-        params = _default_params(n_obs, n_samples)
-        params.update({'P': p_graph, 'PZ': p_mix, 'NZ': n_mix, 'K': k_components})
+            params = _default_params(n_obs, n_samples)
+            params.update({'P': p_graph, 'PZ': p_mix, 'NZ': n_mix, 'K': k_components})
 
-        dag = gen_erdos_graph(params)
-        y_node = n_obs - 1
-        dag.remove_edges_from(list(dag.out_edges(y_node)))
-        binary_nodes = set(range(n_obs - 1))
+            dag = gen_erdos_graph(params)
+            y_node = n_obs - 1
+            dag.remove_edges_from(list(dag.out_edges(y_node)))
+            binary_nodes = set(range(n_obs - 1))
 
-        mixing_sets = gen_random_intervention_targets(params, dag, rng)
-        mixing_sets = [s for s in mixing_sets if s]
+            mixing_sets = gen_random_intervention_targets(params, dag, rng)
+            mixing_sets = [s for s in mixing_sets if s]
 
-        Zs = []
-        for _ in mixing_sets:
-            p = rng.dirichlet(np.ones(k_components))
-            Zs.append(rng.choice(k_components, size=n_samples, p=p))
+            Zs = []
+            for _ in mixing_sets:
+                p = rng.dirichlet(np.ones(k_components))
+                Zs.append(rng.choice(k_components, size=n_samples, p=p))
 
-        gen = BinaryDataGen(params, dag, binary_nodes, seed=seed)
-        X = gen.gen_X(mixing_sets, Zs)
+            gen = BinaryDataGen(params, dag, binary_nodes, seed=seed)
+            X = gen.gen_X(mixing_sets, Zs)
+        finally:
+            np.random.set_state(np_state)
+            random.setstate(py_state)
 
         self.X = X
         self.dag = dag
