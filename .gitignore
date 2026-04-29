@@ -14,3 +14,5 @@ data/synthetic/*
 results/preliminary/*
 !results/preliminary/.gitkeep
 results/bootstrap_*/
+results/sweep_*/
+results/synthetic_validation_*/

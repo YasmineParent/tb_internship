@@ -1,0 +1,71 @@
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+
+
+def plot_comparison(records_old: list[dict], records_new: list[dict], metrics: list[str], labels: list[str],
+                    label_old: str = 'Gaussian (noise)', label_new: str = 'Logistic (FLXMRglm)'):
+    """Grouped bar chart comparing any set of metrics between two models."""
+    df_old = pd.DataFrame(records_old)
+    df_new = pd.DataFrame(records_new)
+
+    means_old = [df_old[m].mean() for m in metrics]
+    means_new = [df_new[m].mean() for m in metrics]
+    stds_old  = [df_old[m].std()  for m in metrics]
+    stds_new  = [df_new[m].std()  for m in metrics]
+
+    x = np.arange(len(labels))
+    width = 0.35
+
+    fig, ax = plt.subplots(figsize=(2 + 2 * len(labels), 4))
+    ax.bar(x - width / 2, means_old, width, yerr=stds_old, label=label_old, capsize=4, color='steelblue')
+    ax.bar(x + width / 2, means_new, width, yerr=stds_new, label=label_new, capsize=4, color='coral')
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels)
+    ax.set_ylim(0, 1.1)
+    ax.legend()
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_sweep(df: pd.DataFrame, metrics: list[str], metric_labels: dict,
+               title: str = '', figsize_scale: float = 4.0):
+    """Figure D.2-style grid: rows=metrics, columns=sweep parameters.
+    df must have columns: param, value, model, and all metrics."""
+    from experiments.run_parameter_sweep import SWEEPS
+    params = list(SWEEPS.keys())
+    param_labels = {
+        'n_mix':     'Mix. Nodes (NZ)',
+        'p_mix':     'Mix. Edge Density (pZ)',
+        'n_samples': 'Sample Size (S)',
+        'n_obs':     'Obs. Nodes (NX)',
+        'p_graph':   'Obs. Edge Density (pG)',
+    }
+
+    fig, axes = plt.subplots(len(metrics), len(params),
+                              figsize=(figsize_scale * len(params), 3 * len(metrics)))
+    if len(metrics) == 1:
+        axes = axes[np.newaxis, :]
+
+    for col, param in enumerate(params):
+        sub = df[df['param'] == param]
+        for row, metric in enumerate(metrics):
+            ax = axes[row, col]
+            for model, color, lbl in [('gaussian', 'steelblue', 'Gaussian'), ('logistic', 'coral', 'Logistic')]:
+                g = sub[sub['model'] == model].groupby('value')[metric]
+                means, stds = g.mean(), g.std().fillna(0)
+                ax.plot(means.index, means.values, color=color, label=lbl, marker='o', markersize=3)
+                ax.fill_between(means.index, means - stds, means + stds, alpha=0.2, color=color)
+            ax.set_ylim(0, 1)
+            if row == 0:
+                ax.set_title(param_labels.get(param, param), fontsize=9)
+            if col == 0:
+                ax.set_ylabel(metric_labels.get(metric, metric))
+            if row == len(metrics) - 1:
+                ax.set_xlabel(param)
+
+    axes[0, -1].legend(fontsize=8)
+    if title:
+        plt.suptitle(title, y=1.01)
+    plt.tight_layout()
+    plt.show()
