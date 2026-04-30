@@ -40,8 +40,10 @@ def run_experiment(n_mutations: int, n_seeds: int, n_bootstrap: int, threshold: 
 
         stable = get_stable_edges(cmm_list, data.features, threshold=threshold)
         stable_set = set(zip(stable['source'], stable['target']))
-        pr_d,  re_d,  f1_d  = eval_recovery(stable_set, data.true_bin_to_cont)
-        pr_bb, re_bb, f1_bb = eval_recovery(stable_set, data.true_bin_to_bin)
+        stable_bb = {(s, t) for s, t in stable_set if s != 'Y' and t != 'Y'}
+        stable_bc = {(s, t) for s, t in stable_set if t == 'Y'}
+        pr_d,  re_d,  f1_d  = eval_recovery(stable_bc, data.true_bin_to_cont)
+        pr_bb, re_bb, f1_bb = eval_recovery(stable_bb, data.true_bin_to_bin)
 
         bb_freq = sum(freq_map.get(e, 0) for e in data.true_bin_to_bin)  / max(len(data.true_bin_to_bin), 1)
         d_freq  = sum(freq_map.get(e, 0) for e in data.true_bin_to_cont) / max(len(data.true_bin_to_cont), 1)
@@ -66,10 +68,12 @@ def run_single(n_mutations: int, n_seeds: int, use_logistic: bool) -> list[dict]
     for seed in range(n_seeds):
         print(f"  [{label}] seed {seed + 1}/{n_seeds}", flush=True)
         data = SyntheticData(n_mutations, seed=seed)
-        cmm = run_cmm(data.X, data.forbidden_edges, use_logistic=use_logistic)
+        cmm = run_cmm(data.X, data.forbidden_edges, use_logistic=use_logistic, noise_seed=seed)
         recovered = {(data.features[i], data.features[j]) for i, j in cmm.dag.edges()}
-        pr_d,  re_d,  f1_d  = eval_recovery(recovered, data.true_bin_to_cont)
-        pr_bb, re_bb, f1_bb = eval_recovery(recovered, data.true_bin_to_bin)
+        rec_bb = {(s, t) for s, t in recovered if s != 'Y' and t != 'Y'}
+        rec_bc = {(s, t) for s, t in recovered if t == 'Y'}
+        pr_d,  re_d,  f1_d  = eval_recovery(rec_bc, data.true_bin_to_cont)
+        pr_bb, re_bb, f1_bb = eval_recovery(rec_bb, data.true_bin_to_bin)
         metrics = {
             'seed': seed,
             'bin_cont_F1': f1_d, 'bin_bin_F1': f1_bb,

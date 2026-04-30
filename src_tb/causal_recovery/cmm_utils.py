@@ -37,8 +37,9 @@ def bootstrap_cmm(X: np.ndarray, forbidden_edges: set[tuple[int, int]], n_runs: 
     for _ in range(n_runs):
         for _ in range(max_retries):
             X_boot = X[rng.choice(len(X), size=len(X), replace=True)]
+            noise_seed = int(rng.integers(2**31))
             try:
-                cmm = run_cmm(X_boot, forbidden_edges, use_logistic=use_logistic)
+                cmm = run_cmm(X_boot, forbidden_edges, use_logistic=use_logistic, noise_seed=noise_seed)
                 cmm_list.append(cmm)
                 break
             except RRuntimeError:
@@ -61,9 +62,9 @@ def edge_stability(cmm_list: list, features: list[str]) -> pd.DataFrame:
 
 
 def get_stable_edges(cmm_list: list, features: list[str], threshold: float = 0.5) -> pd.DataFrame:
-    """Return edges present in more than threshold fraction of runs."""
+    """Return edges present in at least threshold fraction of runs."""
     df = edge_stability(cmm_list, features)
-    return df[df['frequency'] > threshold].sort_values('frequency', ascending=False).reset_index(drop=True)
+    return df[df['frequency'] >= threshold].sort_values('frequency', ascending=False).reset_index(drop=True)
 
 
 def build_stable_bn(cmm_list: list, features: list[str], threshold: float = 0.5, continuous_features: list[str] = None) -> gum.BayesNet:

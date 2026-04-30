@@ -23,6 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 warnings.filterwarnings('ignore')
 
 import pandas as pd
+from rpy2.rinterface_lib.embedded import RRuntimeError
 from src_tb.config import DEFAULTS, SWEEPS, GRAPH_METRICS
 from src_tb.data.synthetic import SyntheticData
 from src_tb.causal_recovery.cmm_utils import run_cmm
@@ -30,13 +31,25 @@ from src_tb.causal_recovery.evaluation import compute_graph_metrics, eval_recove
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
+NAN_RECORD = {m: float('nan') for m in GRAPH_METRICS} | {
+    f'{stat}_{kind}': float('nan')
+    for stat in ('f1', 'precision', 'recall') for kind in ('bin_bin', 'bin_cont')
+}
 
-def run_one(data: SyntheticData, use_logistic: bool) -> dict:
-    cmm = run_cmm(data.X, data.forbidden_edges, use_logistic=use_logistic)
+
+def run_one(data: SyntheticData, use_logistic: bool, seed: int = 0) -> dict:
+    label = 'logistic' if use_logistic else 'gaussian'
+    try:
+        cmm = run_cmm(data.X, data.forbidden_edges, use_logistic=use_logistic, noise_seed=seed)
+    except RRuntimeError as e:
+        print(f"    R error ({label}): {e}", flush=True)
+        return dict(NAN_RECORD)
     recovered = {(data.features[i], data.features[j]) for i, j in cmm.dag.edges()}
+    rec_bb = {(s, t) for s, t in recovered if s != 'Y' and t != 'Y'}
+    rec_bc = {(s, t) for s, t in recovered if t == 'Y'}
     graph = compute_graph_metrics(recovered, data.true_edges, data.features)
-    pr_bb, re_bb, f1_bb = eval_recovery(recovered, data.true_bin_to_bin)
-    pr_bc, re_bc, f1_bc = eval_recovery(recovered, data.true_bin_to_cont)
+    pr_bb, re_bb, f1_bb = eval_recovery(rec_bb, data.true_bin_to_bin)
+    pr_bc, re_bc, f1_bc = eval_recovery(rec_bc, data.true_bin_to_cont)
     return {m: graph.get(m, float('nan')) for m in GRAPH_METRICS} | {
         'f1_bin_bin':        f1_bb, 'precision_bin_bin':  pr_bb, 'recall_bin_bin':  re_bb,
         'f1_bin_cont':       f1_bc, 'precision_bin_cont': pr_bc, 'recall_bin_cont': re_bc,
@@ -52,7 +65,7 @@ def sweep_param(param: str, values: list, n_seeds: int, output_path: str) -> lis
             data = SyntheticData(**kwargs, seed=seed)
             for use_logistic in [False, True]:
                 label = 'logistic' if use_logistic else 'gaussian'
-                metrics = run_one(data, use_logistic)
+                metrics = run_one(data, use_logistic, seed=seed)
                 record = {'param': param, 'value': val, 'seed': seed, 'model': label, **metrics}
                 records.append(record)
                 os.makedirs(os.path.dirname(output_path), exist_ok=True)
