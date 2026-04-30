@@ -1,0 +1,2 @@
+param,value,seed,method,edges,sd,sc,shd,fpr,tpr,f1,tp,mcc,shd-nm,f1_bin_bin,f1_bin_cont,precision_bin_bin,precision_bin_cont,recall_bin_bin,recall_bin_cont
+n_obs,4,0,cmm_logistic,,,,,,,,,,,,,,,,

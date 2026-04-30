@@ -37,15 +37,16 @@ from pgmpy.estimators import PC, GES, ExpertKnowledge
 from experiments.config import DEFAULTS, SWEEPS, GRAPH_METRICS
 from src_tb.data.synthetic import SyntheticData
 from src_tb.causal_recovery.cmm_utils import run_cmm
-from src_tb.causal_recovery.evaluation import compute_graph_metrics, eval_recovery
+from src_tb.causal_recovery.evaluation import score_recovered, serialize_edges
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 METHODS = ['cmm_logistic', 'pc_pillai', 'ges_cg', 'empty']
 
-NAN_RECORD = {m: float('nan') for m in GRAPH_METRICS} | {
-    f'{stat}_{kind}': float('nan')
+CSV_METRIC_KEYS = list(GRAPH_METRICS) + [
+    f'{stat}_{kind}'
     for stat in ('f1', 'precision', 'recall') for kind in ('bin_bin', 'bin_cont')
-}
+]
+NAN_METRICS = {k: float('nan') for k in CSV_METRIC_KEYS}
 
 
 def to_dataframe(data: SyntheticData) -> pd.DataFrame:
@@ -104,25 +105,20 @@ METHOD_FNS = {
 }
 
 
-def score(recovered: set, data: SyntheticData) -> dict:
-    rec_bb = {(s, t) for s, t in recovered if s != 'Y' and t != 'Y'}
-    rec_bc = {(s, t) for s, t in recovered if t == 'Y'}
-    graph = compute_graph_metrics(recovered, data.true_edges, data.features)
-    pr_bb, re_bb, f1_bb = eval_recovery(rec_bb, data.true_bin_to_bin)
-    pr_bc, re_bc, f1_bc = eval_recovery(rec_bc, data.true_bin_to_cont)
-    return {m: graph.get(m, float('nan')) for m in GRAPH_METRICS} | {
-        'f1_bin_bin':        f1_bb, 'precision_bin_bin':  pr_bb, 'recall_bin_bin':  re_bb,
-        'f1_bin_cont':       f1_bc, 'precision_bin_cont': pr_bc, 'recall_bin_cont': re_bc,
-    }
-
-
-def run_method(method: str, data: SyntheticData, seed: int) -> dict:
+def fit_method(method: str, data: SyntheticData, seed: int) -> set | None:
+    """Fit one method and return the recovered edge set, or None on failure."""
     try:
-        recovered = METHOD_FNS[method](data, seed)
+        return METHOD_FNS[method](data, seed)
     except Exception as e:
         print(f"    {method} failed: {type(e).__name__}: {e}", flush=True)
-        return dict(NAN_RECORD)
-    return score(recovered, data)
+        return None
+
+
+def metrics_for_csv(recovered: set | None, data: SyntheticData) -> dict:
+    if recovered is None:
+        return dict(NAN_METRICS)
+    full = score_recovered(recovered, data)
+    return {k: full.get(k, float('nan')) for k in CSV_METRIC_KEYS}
 
 
 def sweep_param(param: str, values: list, n_seeds: int, methods: list, output_path: str) -> None:
@@ -132,8 +128,13 @@ def sweep_param(param: str, values: list, n_seeds: int, methods: list, output_pa
             data = SyntheticData(**kwargs, seed=seed)
             for method in methods:
                 print(f"  {param}={val}  seed {seed + 1}/{n_seeds}  method={method}", flush=True)
-                metrics = run_method(method, data, seed)
-                record = {'param': param, 'value': val, 'seed': seed, 'method': method, **metrics}
+                recovered = fit_method(method, data, seed)
+                metrics = metrics_for_csv(recovered, data)
+                record = {
+                    'param': param, 'value': val, 'seed': seed, 'method': method,
+                    'edges': serialize_edges(recovered) if recovered is not None else '',
+                    **metrics,
+                }
                 os.makedirs(os.path.dirname(output_path), exist_ok=True)
                 pd.DataFrame([record]).to_csv(
                     output_path, mode='a',

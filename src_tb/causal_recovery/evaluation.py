@@ -34,6 +34,38 @@ def compute_graph_metrics(recovered: set, true_edges: set, features: list) -> di
     return compare_lmg_DAG(nxdigraph_to_lmg(true_g), nxdigraph_to_lmg(rec_g))
 
 
+def serialize_edges(edges) -> str:
+    """Serialize an edge set to a CSV-safe string: 'src1->tgt1;src2->tgt2'. Empty -> ''."""
+    if not edges:
+        return ''
+    return ';'.join(f'{s}->{t}' for s, t in sorted(edges))
+
+
+def parse_edges(s) -> set:
+    """Inverse of serialize_edges. Tolerates None/NaN/empty -> empty set."""
+    if not isinstance(s, str) or not s:
+        return set()
+    out = set()
+    for token in s.split(';'):
+        src, _, tgt = token.partition('->')
+        out.add((src, tgt))
+    return out
+
+
+def score_recovered(recovered: set, data) -> dict:
+    """Score a recovered edge set against the data's ground truth. Returns the full
+    compare_lmg_DAG metric dict plus precision/recall/F1 split by edge class
+    (mut->mut, mut->Y). Y as the continuous target is a SyntheticData convention."""
+    rec_bb = {(s, t) for s, t in recovered if s != 'Y' and t != 'Y'}
+    rec_bc = {(s, t) for s, t in recovered if t == 'Y'}
+    graph = compute_graph_metrics(recovered, data.true_edges, data.features)
+    pr_bb, re_bb, f1_bb = eval_recovery(rec_bb, data.true_bin_to_bin)
+    pr_bc, re_bc, f1_bc = eval_recovery(rec_bc, data.true_bin_to_cont)
+    return {**graph,
+            'f1_bin_bin':         f1_bb, 'precision_bin_bin':  pr_bb, 'recall_bin_bin':  re_bb,
+            'f1_bin_cont':        f1_bc, 'precision_bin_cont': pr_bc, 'recall_bin_cont': re_bc}
+
+
 def evaluate_method(
     method_name: str,
     bootstrap_results: list[set[tuple[str, str]]],
