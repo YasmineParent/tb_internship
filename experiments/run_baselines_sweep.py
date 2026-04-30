@@ -34,7 +34,7 @@ import numpy as np
 import pandas as pd
 from pgmpy.estimators import PC, GES, ExpertKnowledge
 
-from src_tb.config import DEFAULTS, SWEEPS, GRAPH_METRICS
+from experiments.config import DEFAULTS, SWEEPS, GRAPH_METRICS
 from src_tb.data.synthetic import SyntheticData
 from src_tb.causal_recovery.cmm_utils import run_cmm
 from src_tb.causal_recovery.evaluation import compute_graph_metrics, eval_recovery

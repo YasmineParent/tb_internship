@@ -9,7 +9,7 @@ DEFAULTS = dict(n_obs=10, p_graph=0.4, p_mix=0.5, n_mix=2, k_components=2, n_sam
 SWEEPS = {
     'n_mix':     [2, 3, 4, 5],
     'p_mix':     [0.0, 0.2, 0.4, 0.5, 0.6, 0.8, 1.0],
-    'n_samples': [100, 164, 300, 500, 750, 1000],
+    'n_samples': [100, 164, 300, 500, 750],
     'n_obs':     [4, 6, 8, 10],
     'p_graph':   [0.0, 0.2, 0.4, 0.6, 0.8, 1.0],
 }
