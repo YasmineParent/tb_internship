@@ -38,10 +38,23 @@ class BinaryDataGen(DataGen):
             return super()._gen_functional_dep_i(X, i, fun)
 
         par = list(self.G.predecessors(i))
+        is_cf = any(i in conf_ind for conf_ind in self.conf_ind_sets)
+
+        # Source binary nodes: replace base-class gaussian noise with Bernoulli draws.
+        # For confounded sources, vary p per mixture cluster via sigmoid of the cluster bias.
         if not par:
+            if not is_cf:
+                X[:, i] = np.random.binomial(1, 0.5, size=X.shape[0])
+            else:
+                for iz, conf_ind in enumerate(self.conf_ind_sets):
+                    if i not in conf_ind:
+                        continue
+                    for k in np.unique(self.Zs[iz]):
+                        mask = self.Zs[iz] == k
+                        p = _sigmoid(self.bs[iz][k][i])
+                        X[mask, i] = np.random.binomial(1, p, size=int(mask.sum()))
             return X
 
-        is_cf = any([i in conf_ind for conf_ind in self.conf_ind_sets])
         if not is_cf:
             linear = X[:, par].dot(self.W[par, i])
             X[:, i] = np.random.binomial(1, _sigmoid(linear))
@@ -100,6 +113,18 @@ class SyntheticData:
             binary_nodes = set(range(n_obs - 1))
 
             mixing_sets = gen_random_intervention_targets(params, dag, rng)
+            # gen_random_intervention_targets distributes floor(p_mix * n_obs) nodes across
+            # n_mix sets, leaving empty sets when there aren't enough nodes to go around.
+            # When p_mix > 0, pad empties with unused nodes so the realized mixture count
+            # matches n_mix. p_mix=0 keeps everything empty by design.
+            if p_mix > 0:
+                used = {n for s in mixing_sets for n in s}
+                available = [n for n in dag.nodes() if n not in used]
+                for i, s in enumerate(mixing_sets):
+                    if not s and available:
+                        picked = int(rng.choice(available))
+                        available.remove(picked)
+                        mixing_sets[i] = [picked]
             mixing_sets = [s for s in mixing_sets if s]
 
             Zs = []

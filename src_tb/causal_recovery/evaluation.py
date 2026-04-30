@@ -19,17 +19,18 @@ def compute_graph_metrics(recovered: set, true_edges: set, features: list) -> di
     name_to_idx = {f: i for i, f in enumerate(features)}
     nodes = list(range(len(features)))
 
-    true_g = nx.DiGraph()
-    true_g.add_nodes_from(nodes)
-    for s, t in true_edges:
-        true_g.add_edge(name_to_idx[s], name_to_idx[t])
+    def _build(edges, label):
+        unknown = {n for s, t in edges for n in (s, t) if n not in name_to_idx}
+        if unknown:
+            raise ValueError(f"{label} edges reference unknown features: {sorted(unknown)}")
+        g = nx.DiGraph()
+        g.add_nodes_from(nodes)
+        for s, t in edges:
+            g.add_edge(name_to_idx[s], name_to_idx[t])
+        return g
 
-    rec_g = nx.DiGraph()
-    rec_g.add_nodes_from(nodes)
-    for s, t in recovered:
-        if s in name_to_idx and t in name_to_idx:
-            rec_g.add_edge(name_to_idx[s], name_to_idx[t])
-
+    true_g = _build(true_edges, 'true')
+    rec_g  = _build(recovered, 'recovered')
     return compare_lmg_DAG(nxdigraph_to_lmg(true_g), nxdigraph_to_lmg(rec_g))
 
 
