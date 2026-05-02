@@ -29,12 +29,17 @@ def plot_comparison(records_old: list[dict], records_new: list[dict], metrics: l
 
 
 def plot_sweep(df: pd.DataFrame, metrics: list[str], metric_labels: dict,
-               param_labels: dict | None = None, title: str = '', figsize_scale: float = 4.0):
+               param_labels: dict | None = None, group_col: str = 'model',
+               group_labels: dict | None = None, title: str = '', figsize_scale: float = 4.0):
     """Figure D.2-style grid: rows=metrics, columns=sweep parameters.
-    df must have columns: param, value, model, and all metrics.
-    Param order is taken from df['param'].unique(); pass param_labels for nice column titles."""
+    df must have columns: param, value, <group_col>, and all metrics.
+    Param order is taken from df['param'].unique(); pass param_labels for nice column titles.
+    group_col is 'model' for run_parameter_sweep results, 'method' for run_baselines_sweep results."""
     params = list(dict.fromkeys(df['param']))
     param_labels = param_labels or {}
+    group_labels = group_labels or {}
+    groups = sorted(df[group_col].unique())
+    colors = plt.cm.tab10(np.linspace(0, 1, max(len(groups), 1)))
 
     fig, axes = plt.subplots(len(metrics), len(params),
                               figsize=(figsize_scale * len(params), 3 * len(metrics)))
@@ -45,10 +50,11 @@ def plot_sweep(df: pd.DataFrame, metrics: list[str], metric_labels: dict,
         sub = df[df['param'] == param]
         for row, metric in enumerate(metrics):
             ax = axes[row, col]
-            for model, color, lbl in [('gaussian', 'steelblue', 'Gaussian'), ('logistic', 'coral', 'Logistic')]:
-                g = sub[sub['model'] == model].groupby('value')[metric]
+            for group, color in zip(groups, colors):
+                g = sub[sub[group_col] == group].groupby('value')[metric]
                 means, stds = g.mean(), g.std().fillna(0)
-                ax.plot(means.index, means.values, color=color, label=lbl, marker='o', markersize=3)
+                ax.plot(means.index, means.values, color=color,
+                        label=group_labels.get(group, group), marker='o', markersize=3)
                 ax.fill_between(means.index, means - stds, means + stds, alpha=0.2, color=color)
             ax.set_ylim(0, 1)
             if row == 0:

@@ -4,7 +4,7 @@ Results saved to results/synthetic_validation_<timestamp>/.
 
 Usage:
     python experiments/run_synthetic_validation.py
-    python experiments/run_synthetic_validation.py --n_mutations 8 --n_seeds 20 --n_bootstrap 30
+    python experiments/run_synthetic_validation.py --n_obs 8 --n_seeds 20 --n_bootstrap 30
     python experiments/run_synthetic_validation.py --smoke       # quick bootstrap sanity check
     python experiments/run_synthetic_validation.py --single_run  # no bootstrap, checks if edges findable at all
 """
@@ -27,14 +27,14 @@ from src_tb.causal_recovery.cmm_utils import run_cmm, bootstrap_cmm, get_stable_
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
-def run_experiment(n_mutations: int, n_seeds: int, n_bootstrap: int, threshold: float, use_logistic: bool, output_path: str = None) -> list[dict]:
+def run_experiment(n_obs: int, n_seeds: int, n_bootstrap: int, threshold: float, use_logistic: bool, output_path: str = None) -> list[dict]:
     label = 'logistic' if use_logistic else 'gaussian'
     records = []
     for seed in range(n_seeds):
         print(f"  [{label}] seed {seed + 1}/{n_seeds}", flush=True)
-        data = SyntheticData(n_mutations, seed=seed)
+        data = SyntheticData(n_obs, seed=seed)
         cmm_list = bootstrap_cmm(data.X, data.forbidden_edges, n_runs=n_bootstrap,
-                                  use_logistic=use_logistic, seed=seed)
+                                use_logistic=use_logistic, seed=seed)
         df_freq = edge_stability(cmm_list, data.features)
         freq_map = {(r['source'], r['target']): r['frequency'] for _, r in df_freq.iterrows()}
 
@@ -61,13 +61,13 @@ def run_experiment(n_mutations: int, n_seeds: int, n_bootstrap: int, threshold: 
     return records
 
 
-def run_single(n_mutations: int, n_seeds: int, use_logistic: bool) -> list[dict]:
-    """Single run per seed — no bootstrap, no stability threshold. Checks if edges are findable at all."""
+def run_single(n_obs: int, n_seeds: int, use_logistic: bool) -> list[dict]:
+    """Single run per seed. No bootstrap, no stability threshold. Checks if edges are findable at all."""
     label = 'logistic' if use_logistic else 'gaussian'
     records = []
     for seed in range(n_seeds):
         print(f"  [{label}] seed {seed + 1}/{n_seeds}", flush=True)
-        data = SyntheticData(n_mutations, seed=seed)
+        data = SyntheticData(n_obs, seed=seed)
         cmm = run_cmm(data.X, data.forbidden_edges, use_logistic=use_logistic, noise_seed=seed)
         recovered = {(data.features[i], data.features[j]) for i, j in cmm.dag.edges()}
         rec_bb = {(s, t) for s, t in recovered if s != 'Y' and t != 'Y'}
@@ -101,7 +101,7 @@ def print_summary(records_old: list[dict], records_new: list[dict]):
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--n_mutations', type=int, default=8)
+    parser.add_argument('--n_obs', type=int, default=8)
     parser.add_argument('--n_seeds',     type=int, default=20)
     parser.add_argument('--n_bootstrap', type=int, default=30)
     parser.add_argument('--threshold',   type=float, default=0.5)
@@ -114,13 +114,13 @@ def main():
     args = parse_args()
 
     if args.smoke:
-        args.n_mutations, args.n_seeds, args.n_bootstrap = 4, 2, 3
-        print("Smoke test (n_mutations=4, n_seeds=2, n_bootstrap=3)", flush=True)
+        args.n_obs, args.n_seeds, args.n_bootstrap = 4, 2, 3
+        print("Smoke test (n_obs=4, n_seeds=2, n_bootstrap=3)", flush=True)
 
     if args.single_run:
-        print(f"Single run (n_mutations={args.n_mutations}, n_seeds={args.n_seeds}, no bootstrap)", flush=True)
-        records_old = run_single(args.n_mutations, args.n_seeds, use_logistic=False)
-        records_new = run_single(args.n_mutations, args.n_seeds, use_logistic=True)
+        print(f"Single run (n_obs={args.n_obs}, n_seeds={args.n_seeds}, no bootstrap)", flush=True)
+        records_old = run_single(args.n_obs, args.n_seeds, use_logistic=False)
+        records_new = run_single(args.n_obs, args.n_seeds, use_logistic=True)
         print_summary(records_old, records_new)
         return
 
@@ -128,15 +128,15 @@ def main():
     output_dir.mkdir(parents=True, exist_ok=True)
 
     with open(output_dir / 'config.txt', 'w') as f:
-        f.write(f"n_mutations={args.n_mutations}\nn_seeds={args.n_seeds}\nn_bootstrap={args.n_bootstrap}\nthreshold={args.threshold}\n")
+        f.write(f"n_obs={args.n_obs}\nn_seeds={args.n_seeds}\nn_bootstrap={args.n_bootstrap}\nthreshold={args.threshold}\n")
 
     print("Gaussian noise (old model)", flush=True)
-    records_old = run_experiment(args.n_mutations, args.n_seeds, args.n_bootstrap, args.threshold, use_logistic=False,
-                                 output_path=str(output_dir / 'results_gaussian.csv'))
+    records_old = run_experiment(args.n_obs, args.n_seeds, args.n_bootstrap, args.threshold, use_logistic=False,
+                                output_path=str(output_dir / 'results_gaussian.csv'))
 
     print("Logistic FLXMRglm (new model)", flush=True)
-    records_new = run_experiment(args.n_mutations, args.n_seeds, args.n_bootstrap, args.threshold, use_logistic=True,
-                                 output_path=str(output_dir / 'results_logistic.csv'))
+    records_new = run_experiment(args.n_obs, args.n_seeds, args.n_bootstrap, args.threshold, use_logistic=True,
+                                output_path=str(output_dir / 'results_logistic.csv'))
 
     print(f"\nResults saved to {output_dir}/", flush=True)
     print_summary(records_old, records_new)

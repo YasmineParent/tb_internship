@@ -4,7 +4,7 @@ Replicates Figure D.2 from the CMM paper, extended to binary observed variables.
 
 Varies 5 parameters (NX, pG, S, NZ, pZ) while fixing others at default.
 Compares Gaussian CMM (old) vs Logistic CMM (new).
-Results saved incrementally to CSV — plot in notebook from saved data.
+Results saved incrementally to CSV. Plot in notebook from saved data.
 
 Usage:
     python experiments/run_parameter_sweep.py

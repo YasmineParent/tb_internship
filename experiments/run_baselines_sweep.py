@@ -50,8 +50,8 @@ NAN_METRICS = {k: float('nan') for k in CSV_METRIC_KEYS}
 
 
 def to_dataframe(data: SyntheticData) -> pd.DataFrame:
-    """Build a typed DataFrame: binary columns as int, Y as float — pgmpy's mixed-data
-    tests rely on dtypes to detect variable types."""
+    """Build a typed DataFrame: binary columns as int, Y as float.
+    pgmpy's mixed-data tests rely on dtypes to detect variable types."""
     df = pd.DataFrame(data.X.copy(), columns=data.features)
     for f in data.features[:-1]:
         df[f] = df[f].round().astype(int)
@@ -70,6 +70,8 @@ def run_cmm_logistic(data: SyntheticData, seed: int) -> set:
 
 def run_pc_pillai(data: SyntheticData, seed: int) -> set:
     df = to_dataframe(data)
+    # ExpertKnowledge with enforce_expert_knowledge=False (default) applies the forbidden
+    # edges post-hoc, after orientation. Same effect as run_ges_cg's set difference.
     ek = ExpertKnowledge(forbidden_edges=list(named_forbidden(data)))
     est = PC(data=df)
     dag = est.estimate(
@@ -88,9 +90,8 @@ def run_ges_cg(data: SyntheticData, seed: int) -> set:
     est = GES(data=df)
     pdag = est.estimate(scoring_method='bic-cg')
     dag = pdag.to_dag()
-    edges = set(dag.edges())
-    forbidden = named_forbidden(data)
-    return edges - forbidden
+    # GES has no native blacklist, so post-hoc filter the forbidden Y -> mut edges.
+    return set(dag.edges()) - named_forbidden(data)
 
 
 def run_empty(data: SyntheticData, seed: int) -> set:

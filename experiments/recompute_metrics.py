@@ -48,7 +48,7 @@ def main():
 
     df = pd.read_csv(args.input_csv)
     if 'edges' not in df.columns:
-        sys.exit(f"error: {args.input_csv} has no 'edges' column — was it produced by the new sweep scripts?")
+        sys.exit(f"error: {args.input_csv} has no 'edges' column. Was it produced by the new sweep scripts?")
 
     print(f"Recomputing {len(df)} rows from {args.input_csv}", flush=True)
     new_metrics = pd.DataFrame([recompute_row(row) for _, row in df.iterrows()])
