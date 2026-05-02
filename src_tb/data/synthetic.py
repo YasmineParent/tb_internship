@@ -91,6 +91,11 @@ class SyntheticData:
     Latent Z creates mixture components with different causal mechanisms.
 
     Parameters match the paper: n_obs=NX, p_graph=pG, p_mix=pZ, n_mix=NZ, k_components=K, n_samples=S.
+
+    NAMING CONVENTION (load-bearing): features are named 'mut_0', 'mut_1', ..., 'mut_{N-2}', 'Y'.
+    The last column is always the continuous target named 'Y'; all others are binary mutations.
+    src_tb.causal_recovery.evaluation.score_recovered relies on these exact names to split
+    metrics by edge class. If you rename, update both files.
     """
 
     def __init__(self, n_obs: int = 10, p_graph: float = 0.4, p_mix: float = 0.5,
@@ -154,9 +159,6 @@ class SyntheticData:
         self.true_bin_to_cont = {
             (s, t) for s, t in self.true_edges if t == 'Y'
         }
-        self.true_direct = self.true_bin_to_cont
-        self.true_chain_cont = set()
-        self.independent_features = []
 
     def visualize_true_dag(self, size: str = "20") -> None:
         """Visualize the true causal DAG."""

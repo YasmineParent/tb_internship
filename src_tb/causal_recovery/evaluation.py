@@ -1,3 +1,10 @@
+"""Graph-recovery metrics for synthetic CMM validation.
+
+CONVENTION: feature 'Y' is the continuous target (last column of SyntheticData.X) and
+all other features ('mut_0', 'mut_1', ...) are binary mutations. score_recovered uses
+this naming directly to split metrics by edge class (mut->mut vs mut->Y). If the
+convention changes, update both score_recovered here and SyntheticData.features.
+"""
 import numpy as np
 import networkx as nx
 
