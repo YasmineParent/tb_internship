@@ -13,10 +13,10 @@ Metrics per (param, value, seed, method): all GRAPH_METRICS (sd, sc, shd, fpr, t
 mcc, shd-nm), plus precision/recall/F1 split by edge class (bin->bin, bin->cont).
 
 Usage:
-    python experiments/run_baselines_sweep.py
-    python experiments/run_baselines_sweep.py --n_seeds 10
-    python experiments/run_baselines_sweep.py --smoke
-    python experiments/run_baselines_sweep.py --methods cmm_logistic pc_pillai
+    python experiments/mixed_cmm/synthetic/run_baselines_sweep.py
+    python experiments/mixed_cmm/synthetic/run_baselines_sweep.py --n_seeds 10
+    python experiments/mixed_cmm/synthetic/run_baselines_sweep.py --smoke
+    python experiments/mixed_cmm/synthetic/run_baselines_sweep.py --methods cmm_logistic pc_pillai
 """
 import sys
 import os
@@ -26,7 +26,7 @@ import warnings
 from datetime import datetime
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 warnings.filterwarnings('ignore')
 
@@ -34,12 +34,12 @@ import numpy as np
 import pandas as pd
 from pgmpy.estimators import PC, GES, ExpertKnowledge
 
-from experiments.config import DEFAULTS, SWEEPS, GRAPH_METRICS
+from experiments.mixed_cmm.synthetic.config import DEFAULTS, SWEEPS, GRAPH_METRICS
 from src_tb.data.synthetic import SyntheticData
 from src_tb.causal_recovery.cmm_utils import run_cmm
 from src_tb.causal_recovery.evaluation import score_recovered, serialize_edges
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[3]
 METHODS = ['cmm_logistic', 'pc_pillai', 'ges_cg', 'empty']
 
 CSV_METRIC_KEYS = list(GRAPH_METRICS) + [

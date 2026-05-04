@@ -3,10 +3,10 @@ A/B comparison: Gaussian noise (old) vs FLXMRglm binomial (new) on synthetic bin
 Results saved to results/synthetic_validation_<timestamp>/.
 
 Usage:
-    python experiments/run_synthetic_validation.py
-    python experiments/run_synthetic_validation.py --n_obs 8 --n_seeds 20 --n_bootstrap 30
-    python experiments/run_synthetic_validation.py --smoke       # quick bootstrap sanity check
-    python experiments/run_synthetic_validation.py --single_run  # no bootstrap, checks if edges findable at all
+    python experiments/mixed_cmm/synthetic/run_synthetic_validation.py
+    python experiments/mixed_cmm/synthetic/run_synthetic_validation.py --n_obs 8 --n_seeds 20 --n_bootstrap 30
+    python experiments/mixed_cmm/synthetic/run_synthetic_validation.py --smoke       # quick bootstrap sanity check
+    python experiments/mixed_cmm/synthetic/run_synthetic_validation.py --single_run  # no bootstrap, checks if edges findable at all
 """
 import sys
 import os
@@ -15,7 +15,7 @@ import warnings
 from datetime import datetime
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 warnings.filterwarnings('ignore')
 
@@ -24,7 +24,7 @@ from src_tb.data.synthetic import SyntheticData
 from src_tb.causal_recovery.evaluation import eval_recovery
 from src_tb.causal_recovery.cmm_utils import run_cmm, bootstrap_cmm, get_stable_edges, edge_stability
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 def run_experiment(n_obs: int, n_seeds: int, n_bootstrap: int, threshold: float, use_logistic: bool, output_path: str = None) -> list[dict]:

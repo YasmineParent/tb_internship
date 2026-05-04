@@ -56,7 +56,11 @@ def plot_sweep(df: pd.DataFrame, metrics: list[str], metric_labels: dict,
                 ax.plot(means.index, means.values, color=color,
                         label=group_labels.get(group, group), marker='o', markersize=3)
                 ax.fill_between(means.index, means - stds, means + stds, alpha=0.2, color=color)
-            ax.set_ylim(0, 1)
+            if 'fpr' in metric.lower():
+                ax.set_ylim(0, 0.2)
+                ax.set_yticks([0, 0.1, 0.2])
+            else:
+                ax.set_ylim(0, 1)
             if row == 0:
                 ax.set_title(param_labels.get(param, param), fontsize=9)
             if col == 0:

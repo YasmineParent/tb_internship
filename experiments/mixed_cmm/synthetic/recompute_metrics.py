@@ -4,20 +4,20 @@ bug, adding a new metric, or just to re-verify. Regenerates the SyntheticData pe
 (deterministic from param/value/seed) and runs score_recovered against the parsed edges.
 
 Usage:
-    python experiments/recompute_metrics.py results/baselines_20260430_1451/results.csv
-    python experiments/recompute_metrics.py path/to/results.csv --output recomputed.csv
+    python experiments/mixed_cmm/synthetic/recompute_metrics.py results/baselines_20260430_1451/results.csv
+    python experiments/mixed_cmm/synthetic/recompute_metrics.py path/to/results.csv --output recomputed.csv
 """
 import argparse
 import sys
 import warnings
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 warnings.filterwarnings('ignore')
 
 import pandas as pd
 
-from experiments.config import DEFAULTS, GRAPH_METRICS
+from experiments.mixed_cmm.synthetic.config import DEFAULTS, GRAPH_METRICS
 from src_tb.data.synthetic import SyntheticData
 from src_tb.causal_recovery.evaluation import parse_edges, score_recovered
 

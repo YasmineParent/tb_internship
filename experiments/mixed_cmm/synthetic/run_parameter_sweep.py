@@ -7,8 +7,8 @@ Compares Gaussian CMM (old) vs Logistic CMM (new).
 Results saved incrementally to CSV. Plot in notebook from saved data.
 
 Usage:
-    python experiments/run_parameter_sweep.py
-    python experiments/run_parameter_sweep.py --n_seeds 3
+    python experiments/mixed_cmm/synthetic/run_parameter_sweep.py
+    python experiments/mixed_cmm/synthetic/run_parameter_sweep.py --n_seeds 3
 """
 import sys
 import os
@@ -18,18 +18,18 @@ import warnings
 from datetime import datetime
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 warnings.filterwarnings('ignore')
 
 import pandas as pd
 from rpy2.rinterface_lib.embedded import RRuntimeError
-from experiments.config import DEFAULTS, SWEEPS, GRAPH_METRICS
+from experiments.mixed_cmm.synthetic.config import DEFAULTS, SWEEPS, GRAPH_METRICS
 from src_tb.data.synthetic import SyntheticData
 from src_tb.causal_recovery.cmm_utils import run_cmm
 from src_tb.causal_recovery.evaluation import score_recovered, serialize_edges
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[3]
 
 CSV_METRIC_KEYS = list(GRAPH_METRICS) + [
     f'{stat}_{kind}'
