@@ -13,22 +13,33 @@ The `external/cmm` submodule is required and is auto-injected onto `sys.path` by
 
 ## Layout
 
-    src_tb/                       reusable package
-      causal_recovery/            CMM bootstrap, evaluation, plotting
-      data/                       synthetic generators and TB data loaders
-      config.py                   shared experiment defaults / sweeps
+    src_tb/                          reusable package
+      causal_recovery/               CMM bootstrap, evaluation, plotting
+      data/                          synthetic generators and TB data loaders
     experiments/
-      run_synthetic_validation.py A/B Gaussian vs FLXMRglm on synthetic data
-      run_parameter_sweep.py      Figure-D.2-style sweep over NX, pG, S, NZ, pZ
-    notebooks/                    Jupyter notebooks
+      mixed_cmm/
+        synthetic/                   synthetic-data validation
+          config.py                  shared defaults / sweeps
+          run_synthetic_validation.py  A/B Gaussian vs FLXMRglm
+          run_parameter_sweep.py     Figure-D.2-style sweep (gaussian vs logistic)
+          run_baselines_sweep.py     same sweep, vs PC / GES / empty baselines
+          recompute_metrics.py       re-score a results.csv from saved edges
+        real/                        TB cohort experiments
+          run_tb_bootstrap_dlm.py    bootstrap CMM-logistic on dlm_mic + mutations
+    notebooks/
+      mixed_cmm/
+        synthetic/                   sweep_plots.ipynb, baselines_sweep_plots.ipynb
+        real/                        cmm_delamanid.ipynb, data_exploration.ipynb
     data/
-      real/{raw,processed}/       TB data (gitignored)
-      synthetic/                  generated (gitignored)
-    external/{cmm,fasterrisk}/    git submodules
-    results/                      timestamped run outputs (gitignored)
+      real/{raw,processed}/          TB data (gitignored)
+      synthetic/                     generated (gitignored)
+    external/{cmm,fasterrisk}/       git submodules
+    results/                         timestamped run outputs (gitignored)
 
 ## Running
 
-    uv run python experiments/run_synthetic_validation.py --smoke
-    uv run python experiments/run_parameter_sweep.py --n_seeds 3
+    uv run python experiments/mixed_cmm/synthetic/run_synthetic_validation.py --smoke
+    uv run python experiments/mixed_cmm/synthetic/run_parameter_sweep.py --n_seeds 3
+    uv run python experiments/mixed_cmm/synthetic/run_baselines_sweep.py --n_seeds 3
+    uv run python experiments/mixed_cmm/real/run_tb_bootstrap_dlm.py --n_runs 30
     uv run jupyter lab
