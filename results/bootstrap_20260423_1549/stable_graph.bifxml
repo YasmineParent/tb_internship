@@ -1,0 +1,302 @@
+<?xml version="1.0" ?>
+
+<BIF VERSION="0.3">
+<NETWORK>
+<NAME>unnamedBN</NAME>
+<PROPERTY>software aGrUM</PROPERTY>
+
+<!-- Variables -->
+<VARIABLE TYPE="nature">
+	<NAME>dlm_mic</NAME>
+	<PROPERTY>description = dlm_mic</PROPERTY>
+	<PROPERTY>fast = dlm_mic{0|1}</PROPERTY>
+<!--OUTCOME are not used in pyAgrum BIFXML (see fast property) but are kept for compatibility-->
+	<OUTCOME>0</OUTCOME>
+	<OUTCOME>1</OUTCOME>
+</VARIABLE>
+
+<VARIABLE TYPE="nature">
+	<NAME>rv0678_G*128C</NAME>
+	<PROPERTY>description = rv0678_G*128C</PROPERTY>
+	<PROPERTY>fast = rv0678_G*128C{0|1}</PROPERTY>
+<!--OUTCOME are not used in pyAgrum BIFXML (see fast property) but are kept for compatibility-->
+	<OUTCOME>0</OUTCOME>
+	<OUTCOME>1</OUTCOME>
+</VARIABLE>
+
+<VARIABLE TYPE="nature">
+	<NAME>mmpl5_Asp767Asn</NAME>
+	<PROPERTY>description = mmpl5_Asp767Asn</PROPERTY>
+	<PROPERTY>fast = mmpl5_Asp767Asn{0|1}</PROPERTY>
+<!--OUTCOME are not used in pyAgrum BIFXML (see fast property) but are kept for compatibility-->
+	<OUTCOME>0</OUTCOME>
+	<OUTCOME>1</OUTCOME>
+</VARIABLE>
+
+<VARIABLE TYPE="nature">
+	<NAME>mmpl5_Ile948Val</NAME>
+	<PROPERTY>description = mmpl5_Ile948Val</PROPERTY>
+	<PROPERTY>fast = mmpl5_Ile948Val{0|1}</PROPERTY>
+<!--OUTCOME are not used in pyAgrum BIFXML (see fast property) but are kept for compatibility-->
+	<OUTCOME>0</OUTCOME>
+	<OUTCOME>1</OUTCOME>
+</VARIABLE>
+
+<VARIABLE TYPE="nature">
+	<NAME>mmpl5_Thr794Ile</NAME>
+	<PROPERTY>description = mmpl5_Thr794Ile</PROPERTY>
+	<PROPERTY>fast = mmpl5_Thr794Ile{0|1}</PROPERTY>
+<!--OUTCOME are not used in pyAgrum BIFXML (see fast property) but are kept for compatibility-->
+	<OUTCOME>0</OUTCOME>
+	<OUTCOME>1</OUTCOME>
+</VARIABLE>
+
+<VARIABLE TYPE="nature">
+	<NAME>pepq_Ala87Gly</NAME>
+	<PROPERTY>description = pepq_Ala87Gly</PROPERTY>
+	<PROPERTY>fast = pepq_Ala87Gly{0|1}</PROPERTY>
+<!--OUTCOME are not used in pyAgrum BIFXML (see fast property) but are kept for compatibility-->
+	<OUTCOME>0</OUTCOME>
+	<OUTCOME>1</OUTCOME>
+</VARIABLE>
+
+<VARIABLE TYPE="nature">
+	<NAME>pepq_Leu163Arg</NAME>
+	<PROPERTY>description = pepq_Leu163Arg</PROPERTY>
+	<PROPERTY>fast = pepq_Leu163Arg{0|1}</PROPERTY>
+<!--OUTCOME are not used in pyAgrum BIFXML (see fast property) but are kept for compatibility-->
+	<OUTCOME>0</OUTCOME>
+	<OUTCOME>1</OUTCOME>
+</VARIABLE>
+
+<VARIABLE TYPE="nature">
+	<NAME>rv1979c_C*135G</NAME>
+	<PROPERTY>description = rv1979c_C*135G</PROPERTY>
+	<PROPERTY>fast = rv1979c_C*135G{0|1}</PROPERTY>
+<!--OUTCOME are not used in pyAgrum BIFXML (see fast property) but are kept for compatibility-->
+	<OUTCOME>0</OUTCOME>
+	<OUTCOME>1</OUTCOME>
+</VARIABLE>
+
+<VARIABLE TYPE="nature">
+	<NAME>rrl_1476188_C>T</NAME>
+	<PROPERTY>description = rrl_1476188_C>T</PROPERTY>
+	<PROPERTY>fast = rrl_1476188_C>T{0|1}</PROPERTY>
+<!--OUTCOME are not used in pyAgrum BIFXML (see fast property) but are kept for compatibility-->
+	<OUTCOME>0</OUTCOME>
+	<OUTCOME>1</OUTCOME>
+</VARIABLE>
+
+<VARIABLE TYPE="nature">
+	<NAME>fbic_C*92G</NAME>
+	<PROPERTY>description = fbic_C*92G</PROPERTY>
+	<PROPERTY>fast = fbic_C*92G{0|1}</PROPERTY>
+<!--OUTCOME are not used in pyAgrum BIFXML (see fast property) but are kept for compatibility-->
+	<OUTCOME>0</OUTCOME>
+	<OUTCOME>1</OUTCOME>
+</VARIABLE>
+
+<VARIABLE TYPE="nature">
+	<NAME>fbic_Leu55Leu</NAME>
+	<PROPERTY>description = fbic_Leu55Leu</PROPERTY>
+	<PROPERTY>fast = fbic_Leu55Leu{0|1}</PROPERTY>
+<!--OUTCOME are not used in pyAgrum BIFXML (see fast property) but are kept for compatibility-->
+	<OUTCOME>0</OUTCOME>
+	<OUTCOME>1</OUTCOME>
+</VARIABLE>
+
+<VARIABLE TYPE="nature">
+	<NAME>fbic_Thr560Thr</NAME>
+	<PROPERTY>description = fbic_Thr560Thr</PROPERTY>
+	<PROPERTY>fast = fbic_Thr560Thr{0|1}</PROPERTY>
+<!--OUTCOME are not used in pyAgrum BIFXML (see fast property) but are kept for compatibility-->
+	<OUTCOME>0</OUTCOME>
+	<OUTCOME>1</OUTCOME>
+</VARIABLE>
+
+<VARIABLE TYPE="nature">
+	<NAME>fbic_Trp678Gly</NAME>
+	<PROPERTY>description = fbic_Trp678Gly</PROPERTY>
+	<PROPERTY>fast = fbic_Trp678Gly{0|1}</PROPERTY>
+<!--OUTCOME are not used in pyAgrum BIFXML (see fast property) but are kept for compatibility-->
+	<OUTCOME>0</OUTCOME>
+	<OUTCOME>1</OUTCOME>
+</VARIABLE>
+
+<VARIABLE TYPE="nature">
+	<NAME>fbid_T-298C</NAME>
+	<PROPERTY>description = fbid_T-298C</PROPERTY>
+	<PROPERTY>fast = fbid_T-298C{0|1}</PROPERTY>
+<!--OUTCOME are not used in pyAgrum BIFXML (see fast property) but are kept for compatibility-->
+	<OUTCOME>0</OUTCOME>
+	<OUTCOME>1</OUTCOME>
+</VARIABLE>
+
+<VARIABLE TYPE="nature">
+	<NAME>fbid_Thr207Pro</NAME>
+	<PROPERTY>description = fbid_Thr207Pro</PROPERTY>
+	<PROPERTY>fast = fbid_Thr207Pro{0|1}</PROPERTY>
+<!--OUTCOME are not used in pyAgrum BIFXML (see fast property) but are kept for compatibility-->
+	<OUTCOME>0</OUTCOME>
+	<OUTCOME>1</OUTCOME>
+</VARIABLE>
+
+<VARIABLE TYPE="nature">
+	<NAME>fgd1_G*357C</NAME>
+	<PROPERTY>description = fgd1_G*357C</PROPERTY>
+	<PROPERTY>fast = fgd1_G*357C{0|1}</PROPERTY>
+<!--OUTCOME are not used in pyAgrum BIFXML (see fast property) but are kept for compatibility-->
+	<OUTCOME>0</OUTCOME>
+	<OUTCOME>1</OUTCOME>
+</VARIABLE>
+
+<VARIABLE TYPE="nature">
+	<NAME>fgd1_Lys270Met</NAME>
+	<PROPERTY>description = fgd1_Lys270Met</PROPERTY>
+	<PROPERTY>fast = fgd1_Lys270Met{0|1}</PROPERTY>
+<!--OUTCOME are not used in pyAgrum BIFXML (see fast property) but are kept for compatibility-->
+	<OUTCOME>0</OUTCOME>
+	<OUTCOME>1</OUTCOME>
+</VARIABLE>
+
+<VARIABLE TYPE="nature">
+	<NAME>fgd1_Phe320Phe</NAME>
+	<PROPERTY>description = fgd1_Phe320Phe</PROPERTY>
+	<PROPERTY>fast = fgd1_Phe320Phe{0|1}</PROPERTY>
+<!--OUTCOME are not used in pyAgrum BIFXML (see fast property) but are kept for compatibility-->
+	<OUTCOME>0</OUTCOME>
+	<OUTCOME>1</OUTCOME>
+</VARIABLE>
+
+<!-- Probability distributions -->
+<DEFINITION>
+	<FOR>dlm_mic</FOR>
+	<TABLE>
+		0 0
+	</TABLE>
+</DEFINITION>
+<DEFINITION>
+	<FOR>rv0678_G*128C</FOR>
+	<GIVEN>mmpl5_Thr794Ile</GIVEN>
+	<GIVEN>fgd1_Phe320Phe</GIVEN>
+	<TABLE>
+		0 0
+		0 0
+		0 0
+		0 0
+	</TABLE>
+</DEFINITION>
+<DEFINITION>
+	<FOR>mmpl5_Asp767Asn</FOR>
+	<GIVEN>fgd1_Phe320Phe</GIVEN>
+	<TABLE>
+		0 0
+		0 0
+	</TABLE>
+</DEFINITION>
+<DEFINITION>
+	<FOR>mmpl5_Ile948Val</FOR>
+	<TABLE>
+		0 0
+	</TABLE>
+</DEFINITION>
+<DEFINITION>
+	<FOR>mmpl5_Thr794Ile</FOR>
+	<GIVEN>fgd1_Phe320Phe</GIVEN>
+	<TABLE>
+		0 0
+		0 0
+	</TABLE>
+</DEFINITION>
+<DEFINITION>
+	<FOR>pepq_Ala87Gly</FOR>
+	<TABLE>
+		0 0
+	</TABLE>
+</DEFINITION>
+<DEFINITION>
+	<FOR>pepq_Leu163Arg</FOR>
+	<TABLE>
+		0 0
+	</TABLE>
+</DEFINITION>
+<DEFINITION>
+	<FOR>rv1979c_C*135G</FOR>
+	<GIVEN>fgd1_Phe320Phe</GIVEN>
+	<TABLE>
+		0 0
+		0 0
+	</TABLE>
+</DEFINITION>
+<DEFINITION>
+	<FOR>rrl_1476188_C>T</FOR>
+	<TABLE>
+		0 0
+	</TABLE>
+</DEFINITION>
+<DEFINITION>
+	<FOR>fbic_C*92G</FOR>
+	<TABLE>
+		0 0
+	</TABLE>
+</DEFINITION>
+<DEFINITION>
+	<FOR>fbic_Leu55Leu</FOR>
+	<TABLE>
+		0 0
+	</TABLE>
+</DEFINITION>
+<DEFINITION>
+	<FOR>fbic_Thr560Thr</FOR>
+	<TABLE>
+		0 0
+	</TABLE>
+</DEFINITION>
+<DEFINITION>
+	<FOR>fbic_Trp678Gly</FOR>
+	<TABLE>
+		0 0
+	</TABLE>
+</DEFINITION>
+<DEFINITION>
+	<FOR>fbid_T-298C</FOR>
+	<GIVEN>fgd1_Phe320Phe</GIVEN>
+	<TABLE>
+		0 0
+		0 0
+	</TABLE>
+</DEFINITION>
+<DEFINITION>
+	<FOR>fbid_Thr207Pro</FOR>
+	<TABLE>
+		0 0
+	</TABLE>
+</DEFINITION>
+<DEFINITION>
+	<FOR>fgd1_G*357C</FOR>
+	<GIVEN>fgd1_Phe320Phe</GIVEN>
+	<GIVEN>rv0678_G*128C</GIVEN>
+	<TABLE>
+		0 0
+		0 0
+		0 0
+		0 0
+	</TABLE>
+</DEFINITION>
+<DEFINITION>
+	<FOR>fgd1_Lys270Met</FOR>
+	<GIVEN>fgd1_Phe320Phe</GIVEN>
+	<TABLE>
+		0 0
+		0 0
+	</TABLE>
+</DEFINITION>
+<DEFINITION>
+	<FOR>fgd1_Phe320Phe</FOR>
+	<TABLE>
+		0 0
+	</TABLE>
+</DEFINITION>
+
+</NETWORK>
+</BIF>

@@ -11,8 +11,4 @@ data/synthetic/*
 !data/synthetic/.gitkeep
 .DS_Store
 .claude/
-results/preliminary/*
-!results/preliminary/.gitkeep
-results/bootstrap_*/
-results/sweep_*/
-results/synthetic_validation_*/
+.gitignore
