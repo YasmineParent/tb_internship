@@ -3,12 +3,6 @@ __pycache__/
 *.pyc
 *.egg-info/
 .ipynb_checkpoints/
-data/real/raw/*
-data/real/processed/*
-data/synthetic/*
-!data/real/raw/.gitkeep
-!data/real/processed/.gitkeep
-!data/synthetic/.gitkeep
 .DS_Store
 .claude/
 .gitignore
