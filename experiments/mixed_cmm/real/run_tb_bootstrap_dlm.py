@@ -39,9 +39,13 @@ def parse_args():
 def main():
     args = parse_args()
     df, mutation_cols, _, _, _ = load_tb_data(str(DATA_PATH))
+    n_before = len(df)
+    df = df.dropna(subset=[MIC_COL]).reset_index(drop=True)
+    print(f"isolates with {MIC_COL}: {len(df)} / {n_before}", flush=True)
     keep = prevalence_filter(df, mutation_cols, min_prev=args.min_prev, max_prev=args.max_prev)
     features = [MIC_COL] + keep
     X = df[features].values
+    # forbid MIC -> mutation: mutations cause MIC, never the reverse
     forbidden = {(0, j) for j in range(1, len(features))}
     print(f"mutations after prevalence filter: {len(keep)}, X shape: {X.shape}", flush=True)
 
@@ -54,7 +58,6 @@ def main():
     df_stability = edge_stability(cmm_list, features).sort_values('frequency', ascending=False)
     df_stability.to_csv(output_dir / 'edge_stability.csv', index=False)
 
-    print(f"{len(df_stability)} unique edges seen across {args.n_runs} runs", flush=True)
     print(f"Done. Results in {output_dir}/", flush=True)
 
 
