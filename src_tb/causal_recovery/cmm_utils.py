@@ -14,10 +14,12 @@ from src.exp.algos import CD
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
-def run_cmm(X: np.ndarray, forbidden_edges: set[tuple[int, int]], use_logistic: bool = True, noise_seed: int = 0, noise_std: float = 0.05):
+def run_cmm(X: np.ndarray, forbidden_edges: set[tuple[int, int]], use_logistic: bool = True,
+            max_parents: int | None = None, noise_seed: int = 0, noise_std: float = 0.05):
     """Run CMM on X.
     use_logistic=True: FLXMRglm(family='binomial') used for binary targets, no noise needed.
-    use_logistic=False: Gaussian driver throughout; binary columns auto-detected and noise added to prevent variance collapse."""
+    use_logistic=False: Gaussian driver throughout; binary columns auto-detected and noise added to prevent variance collapse.
+    max_parents: optional cap on in-degree per node (None = unconstrained)."""
     X_fit = X.astype(float).copy()
     if not use_logistic:
         rng = np.random.default_rng(noise_seed)
@@ -25,27 +27,35 @@ def run_cmm(X: np.ndarray, forbidden_edges: set[tuple[int, int]], use_logistic: 
         if binary_cols:
             X_fit[:, binary_cols] += rng.normal(0, noise_std, (X_fit.shape[0], len(binary_cols)))
     cmm = CD.CausalMixtures.get_method()
-    cmm.fit(X_fit, forbidden_edges=forbidden_edges, use_logistic=use_logistic)
+    cmm.fit(X_fit, forbidden_edges=forbidden_edges, use_logistic=use_logistic, max_parents=max_parents)
     return cmm
 
 
-def bootstrap_cmm(X: np.ndarray, forbidden_edges: set[tuple[int, int]], n_runs: int,
-                  use_logistic: bool = True, seed: int = 0, max_retries: int = 20) -> list:
-    """Vary patients (resample with replacement). Measures sampling variability."""
+def subsample_cmm(X: np.ndarray, forbidden_edges: set[tuple[int, int]], n_runs: int,
+                  use_logistic: bool = True, max_parents: int | None = None,
+                  subsample_frac: float = 0.8, seed: int = 0, max_retries: int = 20) -> list:
+    """Stability selection via subsampling without replacement (Meinshausen-Buhlmann
+    style). Each run fits CMM on a random subsample_frac fraction of rows. Avoids the
+    duplicate-driven log-likelihood collapse that bootstrap with replacement triggers
+    in FLXMRglm on small samples."""
     rng = np.random.default_rng(seed)
+    n = len(X)
+    m = max(1, int(round(subsample_frac * n)))
     cmm_list = []
     for _ in range(n_runs):
         for _ in range(max_retries):
-            X_boot = X[rng.choice(len(X), size=len(X), replace=True)]
+            idx = rng.choice(n, size=m, replace=False)
+            X_sub = X[idx]
             noise_seed = int(rng.integers(2**31))
             try:
-                cmm = run_cmm(X_boot, forbidden_edges, use_logistic=use_logistic, noise_seed=noise_seed)
+                cmm = run_cmm(X_sub, forbidden_edges, use_logistic=use_logistic,
+                              max_parents=max_parents, noise_seed=noise_seed)
                 cmm_list.append(cmm)
                 break
             except RRuntimeError:
                 continue
         else:
-            raise RuntimeError(f"bootstrap_cmm: {max_retries} consecutive RRuntimeErrors")
+            raise RuntimeError(f"subsample_cmm: {max_retries} consecutive RRuntimeErrors")
     return cmm_list
 
 
@@ -91,9 +101,9 @@ def visualize_stable_bn(cmm_list: list, features: list[str], threshold: float = 
     gnb.showBN(build_stable_bn(cmm_list, features, threshold, continuous_features=continuous_features), size=size)
 
 
-def save_bootstrap_results(cmm_list: list, features: list[str], threshold: float = 0.5, size: str = "60", continuous_features: list[str] = None) -> tuple[str, pd.DataFrame]:
+def save_subsample_results(cmm_list: list, features: list[str], threshold: float = 0.5, size: str = "60", continuous_features: list[str] = None) -> tuple[str, pd.DataFrame]:
     """Save edge stability CSVs and stable graph to a timestamped results folder. Visualizes stable BN."""
-    output_dir = str(REPO_ROOT / 'results' / f'bootstrap_{datetime.now().strftime("%Y%m%d_%H%M")}')
+    output_dir = str(REPO_ROOT / 'results' / f'subsample_{datetime.now().strftime("%Y%m%d_%H%M")}')
     os.makedirs(output_dir, exist_ok=True)
 
     df_stability = edge_stability(cmm_list, features)

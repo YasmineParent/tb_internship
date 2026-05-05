@@ -75,26 +75,26 @@ def score_recovered(recovered: set, data) -> dict:
 
 def evaluate_method(
     method_name: str,
-    bootstrap_results: list[set[tuple[str, str]]],
+    subsample_results: list[set[tuple[str, str]]],
     true_edges: set[tuple[str, str]],
     features: list[str],
     stability_threshold: float = 0.5,
 ) -> dict:
-    """Aggregate metrics across bootstrap runs for a single method."""
+    """Aggregate metrics across subsampling runs for a single method."""
     edge_counts = {}
-    for run in bootstrap_results:
+    for run in subsample_results:
         for edge in run:
             edge_counts[edge] = edge_counts.get(edge, 0) + 1
-    n_runs = len(bootstrap_results)
+    n_runs = len(subsample_results)
     stable_edges = {e for e, c in edge_counts.items() if c / n_runs >= stability_threshold}
 
     pr, re, f1 = eval_recovery(stable_edges, true_edges)
     graph_metrics = compute_graph_metrics(stable_edges, true_edges, features)
-    per_run_f1 = [eval_recovery(run, true_edges)[2] for run in bootstrap_results]
+    per_run_f1 = [eval_recovery(run, true_edges)[2] for run in subsample_results]
 
     return {
         'method': method_name,
-        'n_bootstrap': n_runs,
+        'n_runs': n_runs,
         'stability_threshold': stability_threshold,
         'n_stable_edges': len(stable_edges),
         'stable_precision': pr,
