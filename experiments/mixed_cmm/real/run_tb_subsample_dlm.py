@@ -32,7 +32,9 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--n_runs', type=int, default=100, help='stability-selection iterations')
     parser.add_argument('--subsample_frac', type=float, default=0.8, help='fraction of rows per run')
-    parser.add_argument('--max_parents', type=int, default=3, help='cap on in-degree per node')
+    parser.add_argument('--max_parents', type=int, default=4, help='cap on in-degree per node')
+    parser.add_argument('--k_max', type=int, default=5, help='max mixture components per node')
+    parser.add_argument('--min_cluster_count', type=int, default=5, help='min positives per cluster for binary cols')
     parser.add_argument('--min_prev', type=float, default=0.05)
     parser.add_argument('--max_prev', type=float, default=0.98)
     parser.add_argument('--seed', type=int, default=0)
@@ -52,17 +54,23 @@ def main():
     X = df[features].values
     # forbid MIC -> mutation: mutations cause MIC, never the reverse
     forbidden = {(0, j) for j in range(1, len(features))}
+    col_threshold = args.min_cluster_count * args.k_max
     print(f"mutations after prevalence filter: {len(keep)}, X shape: {X.shape}", flush=True)
+    print(f"k_max={args.k_max}, min_cluster_count={args.min_cluster_count}, col_threshold={col_threshold}", flush=True)
+    sparse = [f for f in keep if df[f].sum() < col_threshold]
+    print(f"mutations below col_threshold ({col_threshold}): {sparse}", flush=True)
 
     output_dir = REPO_ROOT / 'results' / f'tb_subsample_dlm_{datetime.now().strftime("%Y%m%d_%H%M")}'
     output_dir.mkdir(parents=True, exist_ok=True)
     with open(output_dir / 'config.json', 'w') as f:
         json.dump({**vars(args), 'mic_col': MIC_COL, 'features': features}, f, indent=2)
 
-    cmm_list = subsample_cmm(X, forbidden, n_runs=args.n_runs, use_logistic=True,
-                             max_parents=args.max_parents, subsample_frac=args.subsample_frac,
-                             seed=args.seed)
-    df_stability = edge_stability(cmm_list, features).sort_values('frequency', ascending=False)
+    cmm_list, features_per_run = subsample_cmm(X, forbidden, n_runs=args.n_runs, use_logistic=True,
+                                               max_parents=args.max_parents, k_max=args.k_max,
+                                               min_cluster_count=args.min_cluster_count,
+                                               subsample_frac=args.subsample_frac,
+                                               features=features, seed=args.seed)
+    df_stability = edge_stability(cmm_list, features_per_run).sort_values('frequency', ascending=False)
     df_stability.to_csv(output_dir / 'edge_stability.csv', index=False)
 
     print(f"Done. Results in {output_dir}/", flush=True)

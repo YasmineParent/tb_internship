@@ -8,67 +8,126 @@ import numpy as np
 import pandas as pd
 from rpy2.rinterface_lib.embedded import RRuntimeError
 
+import rpy2.robjects as ro
+
 import src_tb  # ensures external/cmm is on sys.path
 from src.exp.algos import CD
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
+def _drop_sparse_binary_cols(X: np.ndarray, forbidden_edges: set, is_binary: np.ndarray,
+                              min_count: int) -> tuple[np.ndarray, set, list[int]]:
+    """Drop binary columns with fewer than min_count positives. Returns (X_fit, remapped_forbidden, kept_indices)."""
+    keep = [k for k in range(X.shape[1]) if not is_binary[k] or X[:, k].sum() >= min_count]
+    old_to_new = {old: new for new, old in enumerate(keep)}
+    remapped = {(old_to_new[s], old_to_new[t]) for s, t in forbidden_edges
+                if s in old_to_new and t in old_to_new}
+    return X[:, keep], remapped, keep
+
+
 def run_cmm(X: np.ndarray, forbidden_edges: set[tuple[int, int]], use_logistic: bool = True,
-            max_parents: int | None = None, noise_seed: int = 0, noise_std: float = 0.05):
-    """Run CMM on X.
-    use_logistic=True: FLXMRglm(family='binomial') used for binary targets, no noise needed.
-    use_logistic=False: Gaussian driver throughout; binary columns auto-detected and noise added to prevent variance collapse.
+            max_parents: int | None = None, k_max: int = 5, min_cluster_count: int = 5,
+            noise_seed: int = 0, noise_std: float = 0.05, max_retries: int = 3):
+    """Run CMM on X, retrying with different R seeds on FLXfit failure.
+
+    Binary columns with fewer than min_cluster_count * k_max positives are dropped before
+    fitting — they cannot support logistic mixture with k_max components without degenerate
+    clusters. use_logistic=False adds Gaussian noise to binary cols instead.
     max_parents: optional cap on in-degree per node (None = unconstrained)."""
+    is_binary = np.array([np.all(np.isin(X[:, k], [0, 1])) for k in range(X.shape[1])])
+    if use_logistic:
+        X, forbidden_edges, _ = _drop_sparse_binary_cols(
+            X, forbidden_edges, is_binary, min_count=min_cluster_count * k_max)
     X_fit = X.astype(float).copy()
     if not use_logistic:
         rng = np.random.default_rng(noise_seed)
-        binary_cols = [j for j in range(X_fit.shape[1]) if np.all(np.isin(X[:, j], [0, 1]))]
+        binary_cols = [j for j in range(X_fit.shape[1]) if is_binary[j]]
         if binary_cols:
             X_fit[:, binary_cols] += rng.normal(0, noise_std, (X_fit.shape[0], len(binary_cols)))
-    cmm = CD.CausalMixtures.get_method()
-    cmm.fit(X_fit, forbidden_edges=forbidden_edges, use_logistic=use_logistic, max_parents=max_parents)
-    return cmm
+    for attempt in range(max_retries):
+        ro.r(f'set.seed({noise_seed + attempt})')
+        try:
+            cmm = CD.CausalMixtures.get_method()
+            cmm.fit(X_fit, forbidden_edges=forbidden_edges, use_logistic=use_logistic,
+                    max_parents=max_parents, k_max=k_max)
+            return cmm
+        except RRuntimeError:
+            continue
+    raise RRuntimeError(f'run_cmm: {max_retries} consecutive R seed attempts failed')
 
 
 def subsample_cmm(X: np.ndarray, forbidden_edges: set[tuple[int, int]], n_runs: int,
-                  use_logistic: bool = True, max_parents: int | None = None,
-                  subsample_frac: float = 0.8, seed: int = 0, max_retries: int = 20) -> list:
-    """Stability selection via subsampling without replacement (Meinshausen-Buhlmann
-    style). Each run fits CMM on a random subsample_frac fraction of rows. Avoids the
-    duplicate-driven log-likelihood collapse that bootstrap with replacement triggers
-    in FLXMRglm on small samples."""
+                  use_logistic: bool = True, max_parents: int | None = None, k_max: int = 5,
+                  subsample_frac: float = 0.8, min_cluster_count: int = 5,
+                  features: list[str] | None = None,
+                  seed: int = 0, max_retries: int = 20) -> tuple[list, list]:
+    """Stability selection via subsampling without replacement (Meinshausen-Buhlmann style).
+
+    Each run subsamples subsample_frac of rows without replacement, then drops any binary
+    column with fewer than min_cluster_count positives in that subsample before fitting.
+    This prevents FLXMRglm log-likelihood collapse when rare mutations hit a sparse cluster.
+
+    Returns (cmm_list, features_per_run). If features (names) is provided, features_per_run
+    is a list of name-lists (one per run). Otherwise a list of index-lists. Pass features_per_run
+    to edge_stability for correct per-edge denominators."""
     rng = np.random.default_rng(seed)
-    n = len(X)
+    n, p = X.shape
     m = max(1, int(round(subsample_frac * n)))
+    is_binary = np.array([np.all(np.isin(X[:, k], [0, 1])) for k in range(p)])
+    # threshold: need min_cluster_count positives per cluster across k_max clusters
+    col_threshold = min_cluster_count * k_max
+
     cmm_list = []
+    features_per_run = []
     for _ in range(n_runs):
         for _ in range(max_retries):
             idx = rng.choice(n, size=m, replace=False)
             X_sub = X[idx]
+            X_fit, run_forbidden, keep = _drop_sparse_binary_cols(
+                X_sub, forbidden_edges, is_binary, min_count=col_threshold)
             noise_seed = int(rng.integers(2**31))
             try:
-                cmm = run_cmm(X_sub, forbidden_edges, use_logistic=use_logistic,
-                              max_parents=max_parents, noise_seed=noise_seed)
+                cmm = run_cmm(X_fit, run_forbidden, use_logistic=use_logistic,
+                              max_parents=max_parents, k_max=k_max,
+                              min_cluster_count=0,  # already filtered above
+                              noise_seed=noise_seed)
                 cmm_list.append(cmm)
+                features_per_run.append([features[k] for k in keep] if features else keep)
                 break
             except RRuntimeError:
                 continue
         else:
             raise RuntimeError(f"subsample_cmm: {max_retries} consecutive RRuntimeErrors")
-    return cmm_list
+    return cmm_list, features_per_run
 
 
-def edge_stability(cmm_list: list, features: list[str]) -> pd.DataFrame:
-    """Count how often each named edge appears across runs. Returns DataFrame with source, target, count, frequency."""
+def edge_stability(cmm_list: list, features_per_run: list) -> pd.DataFrame:
+    """Count how often each named edge appears across runs.
+
+    features_per_run: either a flat list[str] (same features every run, old behaviour —
+    frequency = count / n_runs) or a list[list[str]] (per-run feature sets, new behaviour —
+    frequency = count / n_eligible where n_eligible is the number of runs in which both
+    endpoints were present)."""
+    flat = features_per_run and isinstance(features_per_run[0], str)
+    if flat:
+        per_run = [features_per_run] * len(cmm_list)
+    else:
+        per_run = features_per_run
+
     edge_counts = {}
-    for cmm in cmm_list:
+    for cmm, run_feats in zip(cmm_list, per_run):
         for i, j in cmm.dag.edges:
-            edge = (features[i], features[j])
+            edge = (run_feats[i], run_feats[j])
             edge_counts[edge] = edge_counts.get(edge, 0) + 1
-    df_edges = pd.DataFrame([(src, tgt, count) for (src, tgt), count in edge_counts.items()], columns=['source', 'target', 'count'])
-    df_edges['frequency'] = df_edges['count'] / len(cmm_list)
-    return df_edges
+
+    run_sets = [set(f) for f in per_run]
+    rows = []
+    for (src, tgt), count in edge_counts.items():
+        n_eligible = sum(1 for s in run_sets if src in s and tgt in s)
+        rows.append({'source': src, 'target': tgt, 'count': count,
+                     'n_eligible': n_eligible, 'frequency': count / n_eligible})
+    return pd.DataFrame(rows) if rows else pd.DataFrame(columns=['source', 'target', 'count', 'n_eligible', 'frequency'])
 
 
 def get_stable_edges(cmm_list: list, features: list[str], threshold: float = 0.5) -> pd.DataFrame:
