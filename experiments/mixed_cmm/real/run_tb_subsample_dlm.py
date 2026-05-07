@@ -20,8 +20,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 warnings.filterwarnings('ignore')
 
 import numpy as np
-from src_tb.data.load_tb import load_tb_data, prevalence_filter
-from src_tb.causal_recovery.cmm_utils import subsample_cmm, edge_stability
+import pandas as pd
+from src_tb.data.load_tb import load_tb_data, prevalence_filter, lineage_dummies
+from src_tb.causal_recovery.cmm_utils import subsample_cmm, edge_stability, per_node_k_summary
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DATA_PATH = REPO_ROOT / 'data' / 'real' / 'processed' / 'tb_pheno_geno_clean.csv'
@@ -37,6 +38,11 @@ def parse_args():
     parser.add_argument('--min_cluster_count', type=int, default=5, help='min positives per cluster for binary cols')
     parser.add_argument('--min_prev', type=float, default=0.05)
     parser.add_argument('--max_prev', type=float, default=0.98)
+    parser.add_argument('--include_lineage', action='store_true', help='one-hot lineage as covariate')
+    parser.add_argument('--lineage_merge_below', type=int, default=None,
+                        help='pool lineages with count < N into the reference category (e.g. 5 merges L1+L3)')
+    parser.add_argument('--forbid_lineage_to_mic', action='store_true',
+                        help='forbid lineage->MIC edges (default: allow, lets lineage absorb its direct effect on MIC)')
     parser.add_argument('--seed', type=int, default=0)
     return parser.parse_args()
 
@@ -50,17 +56,44 @@ def main():
     # MIC is measured on a 2-fold dilution series; log2 puts dilution steps on a uniform scale.
     df[MIC_COL] = np.log2(df[MIC_COL])
     keep = prevalence_filter(df, mutation_cols, min_prev=args.min_prev, max_prev=args.max_prev)
-    features = [MIC_COL] + keep
-    X = df[features].values
-    # forbid MIC -> mutation: mutations cause MIC, never the reverse
-    forbidden = {(0, j) for j in range(1, len(features))}
+
+    if args.include_lineage:
+        df_lin = lineage_dummies(df, drop_first=True, merge_below=args.lineage_merge_below)
+        lin_cols = list(df_lin.columns)
+        features = [MIC_COL] + keep + lin_cols
+        X = pd.concat([df[[MIC_COL] + keep], df_lin], axis=1).values
+    else:
+        lin_cols = []
+        features = [MIC_COL] + keep
+        X = df[features].values
+
+    mic_idx = 0
+    mut_idx = list(range(1, 1 + len(keep)))
+    lin_idx = list(range(1 + len(keep), 1 + len(keep) + len(lin_cols)))
+
+    forbidden = set()
+    # MIC -> mutation: mutations cause MIC, never the reverse
+    for j in mut_idx:
+        forbidden.add((mic_idx, j))
+    if args.include_lineage:
+        # lineage is exogenous: forbid edges INTO lineage from anything (incl. other lineage dummies)
+        for source in [mic_idx] + mut_idx + lin_idx:
+            for target in lin_idx:
+                if source != target:
+                    forbidden.add((source, target))
+        if args.forbid_lineage_to_mic:
+            for source in lin_idx:
+                forbidden.add((source, mic_idx))
+
     col_threshold = args.min_cluster_count * args.k_max
     print(f"mutations after prevalence filter: {len(keep)}, X shape: {X.shape}", flush=True)
+    print(f"include_lineage={args.include_lineage}, lineage cols: {lin_cols}", flush=True)
     print(f"k_max={args.k_max}, min_cluster_count={args.min_cluster_count}, col_threshold={col_threshold}", flush=True)
     sparse = [f for f in keep if df[f].sum() < col_threshold]
     print(f"mutations below col_threshold ({col_threshold}): {sparse}", flush=True)
 
-    output_dir = REPO_ROOT / 'results' / f'tb_subsample_dlm_{datetime.now().strftime("%Y%m%d_%H%M")}'
+    suffix = '_lineage' if args.include_lineage else ''
+    output_dir = REPO_ROOT / 'results' / f'tb_subsample_dlm{suffix}_{datetime.now().strftime("%Y%m%d_%H%M")}'
     output_dir.mkdir(parents=True, exist_ok=True)
     with open(output_dir / 'config.json', 'w') as f:
         json.dump({**vars(args), 'mic_col': MIC_COL, 'features': features}, f, indent=2)
@@ -72,6 +105,9 @@ def main():
                                                features=features, seed=args.seed)
     df_stability = edge_stability(cmm_list, features_per_run).sort_values('frequency', ascending=False)
     df_stability.to_csv(output_dir / 'edge_stability.csv', index=False)
+
+    df_k = per_node_k_summary(cmm_list, features_per_run)
+    df_k.to_csv(output_dir / 'per_node_k.csv', index=False)
 
     print(f"Done. Results in {output_dir}/", flush=True)
 

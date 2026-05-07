@@ -29,3 +29,21 @@ def prevalence_filter(df: pd.DataFrame, mutation_cols: list[str], min_prev: floa
     max_count = int(round(max_prev * n))
     return [c for c in mutation_cols if min_count <= df[c].sum() <= max_count]
 
+
+def lineage_dummies(df: pd.DataFrame, drop_first: bool = True, prefix: str = 'lineage',
+                    merge_below: int | None = None) -> pd.DataFrame:
+    """One-hot encode the 'lineage' column. drop_first=True drops the lowest-numbered
+    lineage as reference, avoiding collinearity with the regression intercept R adds.
+
+    merge_below: if set, lineages with count < merge_below are recoded to the smallest-count
+    lineage value before encoding. Combined with drop_first=True this effectively pools them
+    into the reference category. Use to absorb minority lineages too rare to model on their own."""
+    s = df['lineage'].copy()
+    if merge_below is not None:
+        counts = s.value_counts()
+        small = sorted(counts[counts < merge_below].index.tolist())
+        if small:
+            target = small[0]
+            s = s.replace({v: target for v in small[1:]})
+    return pd.get_dummies(s, prefix=prefix, drop_first=drop_first, dtype=int)
+
