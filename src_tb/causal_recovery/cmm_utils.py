@@ -1,4 +1,5 @@
 import os
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -61,7 +62,7 @@ def subsample_cmm(X: np.ndarray, forbidden_edges: set[tuple[int, int]], n_runs: 
                   use_logistic: bool = True, max_parents: int | None = None, k_max: int = 5,
                   subsample_frac: float = 0.8, min_cluster_count: int = 5,
                   features: list[str] | None = None,
-                  seed: int = 0, max_retries: int = 20) -> tuple[list, list]:
+                  seed: int = 0, max_retries: int = 3) -> tuple[list, list]:
     """Stability selection via subsampling without replacement (Meinshausen-Buhlmann style).
 
     Each run subsamples subsample_frac of rows without replacement, then drops any binary
@@ -75,13 +76,13 @@ def subsample_cmm(X: np.ndarray, forbidden_edges: set[tuple[int, int]], n_runs: 
     n, p = X.shape
     m = max(1, int(round(subsample_frac * n)))
     is_binary = np.array([np.all(np.isin(X[:, k], [0, 1])) for k in range(p)])
-    # threshold: need min_cluster_count positives per cluster across k_max clusters
     col_threshold = min_cluster_count * k_max
 
     cmm_list = []
     features_per_run = []
-    for _ in range(n_runs):
-        for _ in range(max_retries):
+    for run_i in range(n_runs):
+        t0 = time.perf_counter()
+        for attempt in range(max_retries):
             idx = rng.choice(n, size=m, replace=False)
             X_sub = X[idx]
             X_fit, run_forbidden, keep = _drop_sparse_binary_cols(
@@ -94,11 +95,13 @@ def subsample_cmm(X: np.ndarray, forbidden_edges: set[tuple[int, int]], n_runs: 
                               noise_seed=noise_seed)
                 cmm_list.append(cmm)
                 features_per_run.append([features[k] for k in keep] if features else keep)
+                dt = time.perf_counter() - t0
+                print(f"run {run_i+1}/{n_runs} done in {dt:.1f}s ({len(keep)} features kept, attempt {attempt+1})", flush=True)
                 break
             except RRuntimeError:
                 continue
         else:
-            raise RuntimeError(f"subsample_cmm: {max_retries} consecutive RRuntimeErrors")
+            raise RuntimeError(f"subsample_cmm: {max_retries} consecutive RRuntimeErrors at run {run_i+1}")
     return cmm_list, features_per_run
 
 
@@ -128,6 +131,40 @@ def edge_stability(cmm_list: list, features_per_run: list) -> pd.DataFrame:
         rows.append({'source': src, 'target': tgt, 'count': count,
                      'n_eligible': n_eligible, 'frequency': count / n_eligible})
     return pd.DataFrame(rows) if rows else pd.DataFrame(columns=['source', 'target', 'count', 'n_eligible', 'frequency'])
+
+
+def per_node_k_summary(cmm_list: list, features_per_run: list) -> pd.DataFrame:
+    """Aggregate the best k chosen per node across stability-selection runs.
+
+    Reads cmm.model.div_measures[i]['k'] (set by mixing.fit_functional_mixture) for each
+    node i present in a given run. Returns a DataFrame with one row per feature:
+    n_runs_present, k1_count..kK_count, mean_k, median_k, mode_k. Sorted by mean_k desc."""
+    flat = features_per_run and isinstance(features_per_run[0], str)
+    per_run = [features_per_run] * len(cmm_list) if flat else features_per_run
+
+    feature_ks: dict[str, list[int]] = {}
+    for cmm, run_feats in zip(cmm_list, per_run):
+        div = getattr(cmm.model, 'div_measures', {})
+        for i, feat in enumerate(run_feats):
+            entry = div.get(i)
+            if entry is not None and 'k' in entry:
+                feature_ks.setdefault(feat, []).append(int(entry['k']))
+
+    if not feature_ks:
+        return pd.DataFrame(columns=['feature', 'n_runs_present', 'mean_k', 'median_k', 'mode_k'])
+
+    all_ks = sorted({k for ks in feature_ks.values() for k in ks})
+    rows = []
+    for feat, ks in feature_ks.items():
+        row = {'feature': feat, 'n_runs_present': len(ks)}
+        for k in all_ks:
+            row[f'k{k}_count'] = sum(1 for x in ks if x == k)
+        row['mean_k'] = float(np.mean(ks))
+        row['median_k'] = float(np.median(ks))
+        vals, counts = np.unique(ks, return_counts=True)
+        row['mode_k'] = int(vals[np.argmax(counts)])
+        rows.append(row)
+    return pd.DataFrame(rows).sort_values('mean_k', ascending=False).reset_index(drop=True)
 
 
 def get_stable_edges(cmm_list: list, features: list[str], threshold: float = 0.5) -> pd.DataFrame:
