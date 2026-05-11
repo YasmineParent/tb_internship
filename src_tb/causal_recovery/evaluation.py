@@ -73,34 +73,3 @@ def score_recovered(recovered: set, data) -> dict:
             'f1_bin_cont':        f1_bc, 'precision_bin_cont': pr_bc, 'recall_bin_cont': re_bc}
 
 
-def evaluate_method(
-    method_name: str,
-    subsample_results: list[set[tuple[str, str]]],
-    true_edges: set[tuple[str, str]],
-    features: list[str],
-    stability_threshold: float = 0.5,
-) -> dict:
-    """Aggregate metrics across subsampling runs for a single method."""
-    edge_counts = {}
-    for run in subsample_results:
-        for edge in run:
-            edge_counts[edge] = edge_counts.get(edge, 0) + 1
-    n_runs = len(subsample_results)
-    stable_edges = {e for e, c in edge_counts.items() if c / n_runs >= stability_threshold}
-
-    pr, re, f1 = eval_recovery(stable_edges, true_edges)
-    graph_metrics = compute_graph_metrics(stable_edges, true_edges, features)
-    per_run_f1 = [eval_recovery(run, true_edges)[2] for run in subsample_results]
-
-    return {
-        'method': method_name,
-        'n_runs': n_runs,
-        'stability_threshold': stability_threshold,
-        'n_stable_edges': len(stable_edges),
-        'stable_precision': pr,
-        'stable_recall': re,
-        'stable_f1': f1,
-        'mean_per_run_f1': round(float(np.mean(per_run_f1)), 3),
-        'std_per_run_f1':  round(float(np.std(per_run_f1)), 3),
-        **graph_metrics,
-    }

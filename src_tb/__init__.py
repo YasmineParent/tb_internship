@@ -1,7 +1,6 @@
 import sys
 from pathlib import Path
 from rpy2.rinterface_lib import callbacks
-import logging
 
 callbacks.consolewrite_warnerror = lambda x: None
 callbacks.consolewrite_print = lambda x: None

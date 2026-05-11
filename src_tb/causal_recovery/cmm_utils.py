@@ -62,8 +62,9 @@ def subsample_cmm(X: np.ndarray, forbidden_edges: set[tuple[int, int]], n_runs: 
     """Stability selection via subsampling without replacement (Meinshausen-Buhlmann style).
 
     Each run subsamples subsample_frac of rows without replacement, then drops any binary
-    column with fewer than min_cluster_count positives in that subsample before fitting.
-    This prevents FLXMRglm log-likelihood collapse when rare mutations hit a sparse cluster.
+    column with fewer than min_cluster_count * k_max positives in that subsample before
+    fitting. The product is the threshold below which a logistic mixture with k_max
+    components would collapse on a sparse cluster — defaults give 5 * 5 = 25 positives.
 
     Returns (cmm_list, features_per_run). If features (names) is provided, features_per_run
     is a list of name-lists (one per run). Otherwise a list of index-lists. Pass features_per_run

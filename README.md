@@ -29,7 +29,7 @@ The `external/cmm` submodule is required and is auto-injected onto `sys.path` by
     notebooks/
       mixed_cmm/
         synthetic/                   sweep_plots.ipynb, baselines_sweep_plots.ipynb
-        real/                        cmm_delamanid.ipynb, data_exploration.ipynb
+        real/                        delamanid_stable_graphs.ipynb, data_exploration.ipynb
     data/
       real/{raw,processed}/          TB data (gitignored)
       synthetic/                     generated (gitignored)

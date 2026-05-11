@@ -1,9 +1,10 @@
 import random
+import tempfile
+from pathlib import Path
 
 import numpy as np
 import networkx as nx
 import pyagrum as gum
-import pyagrum.lib.notebook as gnb
 from sklearn import preprocessing
 
 import src_tb  # ensures external/cmm is on sys.path
@@ -161,7 +162,10 @@ class SyntheticData:
         }
 
     def visualize_true_dag(self, size: str = "20") -> None:
-        """Visualize the true causal DAG."""
+        """Visualize the true causal DAG. Rendered as PNG so the output embeds
+        in .ipynb in a format that renders reliably on GitHub."""
+        import pyagrum.lib.image as gimg
+        from IPython.display import display, Image
         bn = gum.BayesNet()
         for i, f in enumerate(self.features):
             if i in self.binary_indices:
@@ -170,4 +174,12 @@ class SyntheticData:
                 bn.add(gum.RangeVariable(f, f, 0, 1))
         for src, tgt in self.true_edges:
             bn.addArc(src, tgt)
-        gnb.showBN(bn, size=size)
+        with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as f:
+            path = f.name
+        try:
+            gimg.export(bn, path, size=size)
+            with open(path, 'rb') as fp:
+                data = fp.read()
+        finally:
+            Path(path).unlink(missing_ok=True)
+        display(Image(data=data, format='png'))

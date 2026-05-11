@@ -56,8 +56,7 @@ def metrics_for_csv(recovered: set | None, data: SyntheticData) -> dict:
     return {k: full.get(k, float('nan')) for k in CSV_METRIC_KEYS}
 
 
-def sweep_param(param: str, values: list, n_seeds: int, output_path: str) -> list:
-    records = []
+def sweep_param(param: str, values: list, n_seeds: int, output_path: str) -> None:
     for val in values:
         kwargs = {**DEFAULTS, param: val}
         for seed in range(n_seeds):
@@ -72,16 +71,14 @@ def sweep_param(param: str, values: list, n_seeds: int, output_path: str) -> lis
                     'edges': serialize_edges(recovered) if recovered is not None else '',
                     **metrics,
                 }
-                records.append(record)
                 os.makedirs(os.path.dirname(output_path), exist_ok=True)
                 pd.DataFrame([record]).to_csv(output_path, mode='a',
                     header=not os.path.exists(output_path), index=False)
-    return records
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--n_seeds', type=int, default=3)
+    parser.add_argument('--n_seeds', type=int, default=10)
     args = parser.parse_args()
 
     output_dir = REPO_ROOT / 'results' / f'sweep_{datetime.now().strftime("%Y%m%d_%H%M")}'

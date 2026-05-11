@@ -3,31 +3,6 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 
-def plot_comparison(records_old: list[dict], records_new: list[dict], metrics: list[str], labels: list[str],
-                    label_old: str = 'Gaussian (noise)', label_new: str = 'Logistic (FLXMRglm)'):
-    """Grouped bar chart comparing any set of metrics between two models."""
-    df_old = pd.DataFrame(records_old)
-    df_new = pd.DataFrame(records_new)
-
-    means_old = [df_old[m].mean() for m in metrics]
-    means_new = [df_new[m].mean() for m in metrics]
-    stds_old  = [df_old[m].std()  for m in metrics]
-    stds_new  = [df_new[m].std()  for m in metrics]
-
-    x = np.arange(len(labels))
-    width = 0.35
-
-    fig, ax = plt.subplots(figsize=(2 + 2 * len(labels), 4))
-    ax.bar(x - width / 2, means_old, width, yerr=stds_old, label=label_old, capsize=4, color='steelblue')
-    ax.bar(x + width / 2, means_new, width, yerr=stds_new, label=label_new, capsize=4, color='coral')
-    ax.set_xticks(x)
-    ax.set_xticklabels(labels)
-    ax.set_ylim(0, 1.1)
-    ax.legend()
-    plt.tight_layout()
-    plt.show()
-
-
 def plot_sweep(df: pd.DataFrame, metrics: list[str], metric_labels: dict,
                param_labels: dict | None = None, group_col: str = 'model',
                group_labels: dict | None = None, title: str = '', figsize_scale: float = 4.0):
