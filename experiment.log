@@ -1,0 +1,172 @@
+nohup: ignoring input
+Graphviz is not installed. 
+  Please install this program in order to visualize graphical models in pyagrum. 
+  See https://graphviz.org/download/
+isolates with dlm_mic: 164 / 164
+mutations after prevalence filter: 17, X shape: (164, 18)
+R callback write-console: Error in FLXfit(model = model, concomitant = concomitant, control = control,  : 
+   106 Log-likelihood: NaN
+  
+R callback write-console: In addition:   
+R callback write-console: There were 50 or more warnings (use warnings() to see the first 50)  
+R callback write-console: 
+  
+R callback write-console: Error in FLXfit(model = model, concomitant = concomitant, control = control,  : 
+    82 Log-likelihood: NA
+  
+R callback write-console: In addition:   
+R callback write-console: There were 50 or more warnings (use warnings() to see the first 50)  
+R callback write-console: 
+  
+R callback write-console: Error in FLXfit(model = model, concomitant = concomitant, control = control,  : 
+   106 Log-likelihood: NA
+  
+R callback write-console: In addition:   
+R callback write-console: There were 50 or more warnings (use warnings() to see the first 50)  
+R callback write-console: 
+  
+R callback write-console: Error in FLXfit(model = model, concomitant = concomitant, control = control,  : 
+    48 Log-likelihood: NA
+  
+R callback write-console: In addition:   
+R callback write-console: There were 50 or more warnings (use warnings() to see the first 50)  
+R callback write-console: 
+  
+R callback write-console: Error in FLXfit(model = model, concomitant = concomitant, control = control,  : 
+     1 Log-likelihood: NA
+  
+R callback write-console: In addition:   
+R callback write-console: There were 50 or more warnings (use warnings() to see the first 50)  
+R callback write-console: 
+  
+R callback write-console: Error in FLXfit(model = model, concomitant = concomitant, control = control,  : 
+    92 Log-likelihood: NA
+  
+R callback write-console: In addition:   
+R callback write-console: There were 50 or more warnings (use warnings() to see the first 50)  
+R callback write-console: 
+  
+R callback write-console: Error in FLXfit(model = model, concomitant = concomitant, control = control,  : 
+    76 Log-likelihood: NA
+  
+R callback write-console: In addition:   
+R callback write-console: There were 50 or more warnings (use warnings() to see the first 50)  
+R callback write-console: 
+  
+R callback write-console: Error in FLXfit(model = model, concomitant = concomitant, control = control,  : 
+   155 Log-likelihood: NA
+  
+R callback write-console: In addition:   
+R callback write-console: There were 50 or more warnings (use warnings() to see the first 50)  
+R callback write-console: 
+  
+R callback write-console: Error in FLXfit(model = model, concomitant = concomitant, control = control,  : 
+   128 Log-likelihood: NA
+  
+R callback write-console: In addition:   
+R callback write-console: There were 50 or more warnings (use warnings() to see the first 50)  
+R callback write-console: 
+  
+R callback write-console: Error in FLXfit(model = model, concomitant = concomitant, control = control,  : 
+    56 Log-likelihood: NA
+  
+R callback write-console: In addition:   
+R callback write-console: There were 50 or more warnings (use warnings() to see the first 50)  
+R callback write-console: 
+  
+R callback write-console: Error in FLXfit(model = model, concomitant = concomitant, control = control,  : 
+     1 Log-likelihood: NA
+  
+R callback write-console: In addition:   
+R callback write-console: There were 50 or more warnings (use warnings() to see the first 50)  
+R callback write-console: 
+  
+R callback write-console: Error in FLXfit(model = model, concomitant = concomitant, control = control,  : 
+     1 Log-likelihood: NA
+  
+R callback write-console: In addition:   
+R callback write-console: There were 50 or more warnings (use warnings() to see the first 50)  
+R callback write-console: 
+  
+R callback write-console: Error in FLXfit(model = model, concomitant = concomitant, control = control,  : 
+   163 Log-likelihood: NA
+  
+R callback write-console: In addition:   
+R callback write-console: There were 50 or more warnings (use warnings() to see the first 50)  
+R callback write-console: 
+  
+R callback write-console: Error in FLXfit(model = model, concomitant = concomitant, control = control,  : 
+   127 Log-likelihood: NaN
+  
+R callback write-console: In addition:   
+R callback write-console: Warning messages:
+  
+R callback write-console: 1:   
+R callback write-console: In (function (package, help, pos = 2, lib.loc = NULL, character.only = FALSE,  :  
+R callback write-console: 
+   
+R callback write-console:  library ‘/usr/lib/R/site-library’ contains no packages
+  
+R callback write-console: 2:   
+R callback write-console: In (function (package, help, pos = 2, lib.loc = NULL, character.only = FALSE,  :  
+R callback write-console: 
+   
+R callback write-console:  library ‘/usr/lib/R/site-library’ contains no packages
+  
+R callback write-console: 3:   
+R callback write-console: In (function (package, help, pos = 2, lib.loc = NULL, character.only = FALSE,  :  
+R callback write-console: 
+   
+R callback write-console:  library ‘/usr/lib/R/site-library’ contains no packages
+  
+R callback write-console: Error in FLXfit(model = model, concomitant = concomitant, control = control,  : 
+   105 Log-likelihood: NA
+  
+R callback write-console: In addition:   
+R callback write-console: There were 50 or more warnings (use warnings() to see the first 50)  
+R callback write-console: 
+  
+R callback write-console: Error in FLXfit(model = model, concomitant = concomitant, control = control,  : 
+    46 Log-likelihood: NA
+  
+R callback write-console: In addition:   
+R callback write-console: There were 50 or more warnings (use warnings() to see the first 50)  
+R callback write-console: 
+  
+R callback write-console: Error in FLXfit(model = model, concomitant = concomitant, control = control,  : 
+   153 Log-likelihood: NA
+  
+R callback write-console: In addition:   
+R callback write-console: There were 50 or more warnings (use warnings() to see the first 50)  
+R callback write-console: 
+  
+R callback write-console: Error in FLXfit(model = model, concomitant = concomitant, control = control,  : 
+    56 Log-likelihood: NA
+  
+R callback write-console: In addition:   
+R callback write-console: There were 50 or more warnings (use warnings() to see the first 50)  
+R callback write-console: 
+  
+R callback write-console: Error in FLXfit(model = model, concomitant = concomitant, control = control,  : 
+     1 Log-likelihood: NA
+  
+R callback write-console: In addition:   
+R callback write-console: There were 50 or more warnings (use warnings() to see the first 50)  
+R callback write-console: 
+  
+R callback write-console: Error in FLXfit(model = model, concomitant = concomitant, control = control,  : 
+     1 Log-likelihood: NA
+  
+R callback write-console: In addition:   
+R callback write-console: There were 50 or more warnings (use warnings() to see the first 50)  
+R callback write-console: 
+  
+Traceback (most recent call last):
+  File "/home/yasmine/tb_internship/experiments/mixed_cmm/real/run_tb_subsample_dlm.py", line 72, in <module>
+    main()
+  File "/home/yasmine/tb_internship/experiments/mixed_cmm/real/run_tb_subsample_dlm.py", line 62, in main
+    cmm_list = subsample_cmm(X, forbidden, n_runs=args.n_runs, use_logistic=True,
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/yasmine/tb_internship/src_tb/causal_recovery/cmm_utils.py", line 58, in subsample_cmm
+    raise RuntimeError(f"subsample_cmm: {max_retries} consecutive RRuntimeErrors")
+RuntimeError: subsample_cmm: 20 consecutive RRuntimeErrors
