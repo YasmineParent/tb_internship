@@ -1,4 +1,0 @@
-n_mutations=8
-n_seeds=10
-n_bootstrap=10
-threshold=0.5
