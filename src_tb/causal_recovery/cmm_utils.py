@@ -1,6 +1,4 @@
-import os
 import time
-from datetime import datetime
 from pathlib import Path
 
 import pyagrum as gum
@@ -13,8 +11,6 @@ import rpy2.robjects as ro
 
 import src_tb  # ensures external/cmm is on sys.path
 from src.exp.algos import CD
-
-REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _drop_sparse_binary_cols(X: np.ndarray, forbidden_edges: set, is_binary: np.ndarray,
@@ -167,49 +163,30 @@ def per_node_k_summary(cmm_list: list, features_per_run: list) -> pd.DataFrame:
     return pd.DataFrame(rows).sort_values('mean_k', ascending=False).reset_index(drop=True)
 
 
-def get_stable_edges(cmm_list: list, features: list[str], threshold: float = 0.5) -> pd.DataFrame:
-    """Return edges present in at least threshold fraction of runs."""
-    df = edge_stability(cmm_list, features)
-    return df[df['frequency'] >= threshold].sort_values('frequency', ascending=False).reset_index(drop=True)
+def build_stable_bn(stability: pd.DataFrame | str | Path, threshold: float = 0.5,
+                    continuous_features: list[str] | None = None) -> gum.BayesNet:
+    """Build a BayesNet from edges with frequency >= threshold.
 
-
-def build_stable_bn(cmm_list: list, features: list[str], threshold: float = 0.5, continuous_features: list[str] = None) -> gum.BayesNet:
-    """Build a BayesNet from edges present in more than threshold fraction of runs."""
-    stable_edges = get_stable_edges(cmm_list, features, threshold)
-    feature_set = set(features)
-    unknown = {e for row in stable_edges.itertuples() for e in (row.source, row.target) if e not in feature_set}
-    if unknown:
-        raise ValueError(f"stable edges reference unknown features: {sorted(unknown)}")
-    continuous_features = set(continuous_features or [])
+    stability: edge_stability DataFrame (or path to its CSV) with columns source, target, frequency.
+    Nodes in the BN are the union of source/target labels among kept edges. Names in
+    continuous_features become RangeVariables; everything else is binary LabelizedVariables."""
+    if not isinstance(stability, pd.DataFrame):
+        stability = pd.read_csv(stability)
+    stable = stability[stability['frequency'] >= threshold]
+    nodes = sorted(set(stable['source']) | set(stable['target']))
+    continuous = set(continuous_features or [])
     bn = gum.BayesNet()
-    for feature in features:
-        if feature in continuous_features:
+    for feature in nodes:
+        if feature in continuous:
             bn.add(gum.RangeVariable(feature, feature, 0, 1))
         else:
             bn.add(gum.LabelizedVariable(feature, feature, 2))
-    for _, row in stable_edges.iterrows():
+    for _, row in stable.iterrows():
         bn.addArc(row['source'], row['target'])
     return bn
 
 
-def visualize_stable_bn(cmm_list: list, features: list[str], threshold: float = 0.5, size: str = "30", continuous_features: list[str] = None):
-    """Visualize stable edges as a BN."""
-    gnb.showBN(build_stable_bn(cmm_list, features, threshold, continuous_features=continuous_features), size=size)
-
-
-def save_subsample_results(cmm_list: list, features: list[str], threshold: float = 0.5, size: str = "60", continuous_features: list[str] = None) -> tuple[str, pd.DataFrame]:
-    """Save edge stability CSVs and stable graph to a timestamped results folder. Visualizes stable BN."""
-    output_dir = str(REPO_ROOT / 'results' / f'subsample_{datetime.now().strftime("%Y%m%d_%H%M")}')
-    os.makedirs(output_dir, exist_ok=True)
-
-    df_stability = edge_stability(cmm_list, features)
-    df_stability.to_csv(os.path.join(output_dir, 'edge_stability.csv'), index=False)
-
-    stable = get_stable_edges(cmm_list, features, threshold=threshold)
-    stable.to_csv(os.path.join(output_dir, 'stable_edges.csv'), index=False)
-
-    bn = build_stable_bn(cmm_list, features, threshold=threshold, continuous_features=continuous_features)
-    gum.saveBN(bn, os.path.join(output_dir, 'stable_graph.bifxml'))
-    gnb.showBN(bn, size=size)
-
-    return output_dir, df_stability
+def visualize_stable_bn(stability: pd.DataFrame | str | Path, threshold: float = 0.5,
+                        size: str = "30", continuous_features: list[str] | None = None):
+    """Visualize stable edges as a BN. Reads from a DataFrame or a path to edge_stability.csv."""
+    gnb.showBN(build_stable_bn(stability, threshold, continuous_features), size=size)
