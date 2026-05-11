@@ -1,8 +1,8 @@
+import tempfile
 import time
 from pathlib import Path
 
 import pyagrum as gum
-import pyagrum.lib.notebook as gnb
 import numpy as np
 import pandas as pd
 from rpy2.rinterface_lib.embedded import RRuntimeError
@@ -188,5 +188,18 @@ def build_stable_bn(stability: pd.DataFrame | str | Path, threshold: float = 0.5
 
 def visualize_stable_bn(stability: pd.DataFrame | str | Path, threshold: float = 0.5,
                         size: str = "30", continuous_features: list[str] | None = None):
-    """Visualize stable edges as a BN. Reads from a DataFrame or a path to edge_stability.csv."""
-    gnb.showBN(build_stable_bn(stability, threshold, continuous_features), size=size)
+    """Visualize stable edges as a BN. Rendered to PNG so the output embeds
+    in .ipynb in a format that renders reliably on GitHub (gnb.showBN's SVG
+    output is flaky in GitHub's notebook renderer)."""
+    import pyagrum.lib.image as gimg
+    from IPython.display import display, Image
+    bn = build_stable_bn(stability, threshold, continuous_features)
+    with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as f:
+        path = f.name
+    try:
+        gimg.export(bn, path, size=size)
+        with open(path, 'rb') as fp:
+            data = fp.read()
+    finally:
+        Path(path).unlink(missing_ok=True)
+    display(Image(data=data, format='png'))
