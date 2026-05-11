@@ -7,6 +7,9 @@ are downstream concerns.
 Usage:
     python experiments/mixed_cmm/real/run_tb_subsample_dlm.py
     python experiments/mixed_cmm/real/run_tb_subsample_dlm.py --n_runs 200 --min_prev 0.1
+    python experiments/mixed_cmm/real/run_tb_subsample_dlm.py --max_parents 6 --k_max 7
+    python experiments/mixed_cmm/real/run_tb_subsample_dlm.py --include_lineage --lineage_merge_below 5
+    python experiments/mixed_cmm/real/run_tb_subsample_dlm.py --include_lineage --forbid_lineage_to_mic
 """
 import sys
 import argparse
