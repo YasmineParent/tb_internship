@@ -25,24 +25,41 @@ def _drop_sparse_binary_cols(X: np.ndarray, forbidden_edges: set, is_binary: np.
 
 def run_cmm(X: np.ndarray, forbidden_edges: set[tuple[int, int]], use_logistic: bool = True,
             max_parents: int | None = None, k_max: int = 5, min_cluster_count: int = 5,
-            noise_seed: int = 0, noise_std: float = 0.05, max_retries: int = 3):
-    """Run CMM on X, retrying with different R seeds on FLXfit failure.
+            noise_seed: int = 0, noise_std: float = 0.05,
+            cont_noise_std: float = 1e-3, max_retries: int = 10):
+    """Run CMM on X, retrying with fresh R seeds (and jittered data) on FLXfit failure.
 
     Binary columns with fewer than min_cluster_count * k_max positives are dropped before
     fitting — they cannot support logistic mixture with k_max components without degenerate
-    clusters. use_logistic=False adds Gaussian noise to binary cols instead.
+    clusters.
+
+    Retry behaviour:
+      - use_logistic=False: small Gaussian noise (std=noise_std) is added to binary cols on
+        every attempt, treating them as continuous.
+      - use_logistic=True: attempt 0 fits the un-noised data. On retries, tiny Gaussian noise
+        (std=cont_noise_std, default 1e-3) is added to continuous cols to break FLXfit
+        degeneracies — the full-data analog of subsample_cmm's row-resampling. This is the
+        jittering / stochastic-EM convention (Diebolt & Celeux 1993; Bishop 1995),
+        unbiased and formally equivalent to small ridge regularization.
+
     max_parents: optional cap on in-degree per node (None = unconstrained)."""
     is_binary = np.array([np.all(np.isin(X[:, k], [0, 1])) for k in range(X.shape[1])])
     if use_logistic:
         X, forbidden_edges, _ = _drop_sparse_binary_cols(
             X, forbidden_edges, is_binary, min_count=min_cluster_count * k_max)
-    X_fit = X.astype(float).copy()
-    if not use_logistic:
-        rng = np.random.default_rng(noise_seed)
-        binary_cols = [j for j in range(X_fit.shape[1]) if is_binary[j]]
-        if binary_cols:
-            X_fit[:, binary_cols] += rng.normal(0, noise_std, (X_fit.shape[0], len(binary_cols)))
+        # recompute is_binary for the now-smaller X
+        is_binary = np.array([np.all(np.isin(X[:, k], [0, 1])) for k in range(X.shape[1])])
+    rng = np.random.default_rng(noise_seed)
+    binary_cols = [j for j in range(X.shape[1]) if is_binary[j]]
+    continuous_cols = [j for j in range(X.shape[1]) if not is_binary[j]]
+
     for attempt in range(max_retries):
+        X_fit = X.astype(float).copy()
+        if not use_logistic and binary_cols:
+            X_fit[:, binary_cols] += rng.normal(0, noise_std, (X_fit.shape[0], len(binary_cols)))
+        if use_logistic and attempt > 0 and continuous_cols:
+            X_fit[:, continuous_cols] += rng.normal(0, cont_noise_std,
+                                                    (X_fit.shape[0], len(continuous_cols)))
         ro.r(f'set.seed({noise_seed + attempt})')
         try:
             cmm = CD.CausalMixtures.get_method()
@@ -51,7 +68,7 @@ def run_cmm(X: np.ndarray, forbidden_edges: set[tuple[int, int]], use_logistic: 
             return cmm
         except RRuntimeError:
             continue
-    raise RRuntimeError(f'run_cmm: {max_retries} consecutive R seed attempts failed')
+    raise RRuntimeError(f'run_cmm: {max_retries} consecutive attempts failed')
 
 
 def subsample_cmm(X: np.ndarray, forbidden_edges: set[tuple[int, int]], n_runs: int,
