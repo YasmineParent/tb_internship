@@ -24,7 +24,7 @@ warnings.filterwarnings('ignore')
 
 import numpy as np
 import pandas as pd
-from src_tb.data.load_tb import load_tb_data, prevalence_filter, lineage_dummies
+from src_tb.data.load_tb import load_tb_data, prevalence_filter, lineage_dummies, type_beyond_MDR
 from src_tb.causal_recovery.cmm_utils import subsample_cmm, edge_stability, per_node_k_summary
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -46,6 +46,8 @@ def parse_args():
                         help='pool lineages with count < N into the reference category (e.g. 5 merges L1+L3)')
     parser.add_argument('--forbid_lineage_to_mic', action='store_true',
                         help='forbid lineage->MIC edges (default: allow, lets lineage absorb its direct effect on MIC)')
+    parser.add_argument('--include_type', action='store_true',
+                        help='add binary type_beyond_MDR (preXDR/XDR vs MDR) as exogenous covariate')
     parser.add_argument('--seed', type=int, default=0)
     return parser.parse_args()
 
@@ -63,16 +65,30 @@ def main():
     if args.include_lineage:
         df_lin = lineage_dummies(df, drop_first=True, merge_below=args.lineage_merge_below)
         lin_cols = list(df_lin.columns)
-        features = [MIC_COL] + keep + lin_cols
-        X = pd.concat([df[[MIC_COL] + keep], df_lin], axis=1).values
     else:
+        df_lin = None
         lin_cols = []
-        features = [MIC_COL] + keep
-        X = df[features].values
+
+    if args.include_type:
+        type_series = type_beyond_MDR(df).rename('type_beyond_MDR')
+        type_cols = ['type_beyond_MDR']
+    else:
+        type_series = None
+        type_cols = []
+
+    features = [MIC_COL] + keep + lin_cols + type_cols
+    pieces = [df[[MIC_COL] + keep]]
+    if df_lin is not None:
+        pieces.append(df_lin)
+    if type_series is not None:
+        pieces.append(type_series.to_frame())
+    X = pd.concat(pieces, axis=1).values
 
     mic_idx = 0
     mut_idx = list(range(1, 1 + len(keep)))
     lin_idx = list(range(1 + len(keep), 1 + len(keep) + len(lin_cols)))
+    type_idx = list(range(1 + len(keep) + len(lin_cols),
+                          1 + len(keep) + len(lin_cols) + len(type_cols)))
 
     forbidden = set()
     # MIC -> mutation: mutations cause MIC, never the reverse
@@ -80,22 +96,29 @@ def main():
         forbidden.add((mic_idx, j))
     if args.include_lineage:
         # lineage is exogenous: forbid edges INTO lineage from anything (incl. other lineage dummies)
-        for source in [mic_idx] + mut_idx + lin_idx:
+        for source in [mic_idx] + mut_idx + lin_idx + type_idx:
             for target in lin_idx:
                 if source != target:
                     forbidden.add((source, target))
         if args.forbid_lineage_to_mic:
             for source in lin_idx:
                 forbidden.add((source, mic_idx))
+    if args.include_type:
+        # type is a clinical classification set before/independently of MIC: forbid edges INTO it
+        for source in [mic_idx] + mut_idx + lin_idx + type_idx:
+            for target in type_idx:
+                if source != target:
+                    forbidden.add((source, target))
 
     col_threshold = args.min_cluster_count * args.k_max
     print(f"mutations after prevalence filter: {len(keep)}, X shape: {X.shape}", flush=True)
     print(f"include_lineage={args.include_lineage}, lineage cols: {lin_cols}", flush=True)
+    print(f"include_type={args.include_type}, type cols: {type_cols}", flush=True)
     print(f"k_max={args.k_max}, min_cluster_count={args.min_cluster_count}, col_threshold={col_threshold}", flush=True)
     sparse = [f for f in keep if df[f].sum() < col_threshold]
     print(f"mutations below col_threshold ({col_threshold}): {sparse}", flush=True)
 
-    suffix = '_lineage' if args.include_lineage else ''
+    suffix = ('_lineage' if args.include_lineage else '') + ('_type' if args.include_type else '')
     output_dir = REPO_ROOT / 'results' / f'tb_subsample_dlm{suffix}_{datetime.now().strftime("%Y%m%d_%H%M")}'
     output_dir.mkdir(parents=True, exist_ok=True)
     with open(output_dir / 'config.json', 'w') as f:

@@ -30,6 +30,13 @@ def prevalence_filter(df: pd.DataFrame, mutation_cols: list[str], min_prev: floa
     return [c for c in mutation_cols if min_count <= df[c].sum() <= max_count]
 
 
+def type_beyond_MDR(df: pd.DataFrame) -> pd.Series:
+    """Binary indicator: 1 if resistance type is preXDR or XDR (type > 0), else 0.
+    Collapses the 3-level type code into one covariate to keep the rare preXDR (n=23)
+    and XDR (n=7) cells from fragmenting the mixture model."""
+    return (df['type'] > 0).astype(int)
+
+
 def lineage_dummies(df: pd.DataFrame, drop_first: bool = True, prefix: str = 'lineage',
                     merge_below: int | None = None) -> pd.DataFrame:
     """One-hot encode the 'lineage' column. drop_first=True drops the lowest-numbered
