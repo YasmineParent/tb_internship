@@ -10,6 +10,8 @@ Usage:
     python experiments/mixed_cmm/real/run_tb_subsample_dlm.py --max_parents 6 --k_max 7
     python experiments/mixed_cmm/real/run_tb_subsample_dlm.py --include_lineage --lineage_merge_below 5
     python experiments/mixed_cmm/real/run_tb_subsample_dlm.py --include_lineage --forbid_lineage_to_mic
+    python experiments/mixed_cmm/real/run_tb_subsample_dlm.py --include_type
+    python experiments/mixed_cmm/real/run_tb_subsample_dlm.py --include_type --forbid_type_to_mic
 """
 import sys
 import argparse
@@ -48,6 +50,8 @@ def parse_args():
                         help='forbid lineage->MIC edges (default: allow, lets lineage absorb its direct effect on MIC)')
     parser.add_argument('--include_type', action='store_true',
                         help='add binary type_beyond_MDR (preXDR/XDR vs MDR) as exogenous covariate')
+    parser.add_argument('--forbid_type_to_mic', action='store_true',
+                        help='forbid type->MIC edges (default: allow, lets type absorb its direct effect on MIC)')
     parser.add_argument('--seed', type=int, default=0)
     return parser.parse_args()
 
@@ -109,6 +113,9 @@ def main():
             for target in type_idx:
                 if source != target:
                     forbidden.add((source, target))
+        if args.forbid_type_to_mic:
+            for source in type_idx:
+                forbidden.add((source, mic_idx))
 
     col_threshold = args.min_cluster_count * args.k_max
     print(f"mutations after prevalence filter: {len(keep)}, X shape: {X.shape}", flush=True)
