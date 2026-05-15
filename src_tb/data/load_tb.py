@@ -48,9 +48,12 @@ def lineage_dummies(df: pd.DataFrame, drop_first: bool = True, prefix: str = 'li
     s = df['lineage'].copy()
     if merge_below is not None:
         counts = s.value_counts()
-        small = sorted(counts[counts < merge_below].index.tolist())
+        small = counts[counts < merge_below].index.tolist()
         if small:
-            target = small[0]
-            s = s.replace({v: target for v in small[1:]})
+            # Merge into the overall smallest lineage value so drop_first=True
+            # actually pools them into the reference, regardless of whether the
+            # smallest lineage is itself rare.
+            target = s.min()
+            s = s.replace({v: target for v in small if v != target})
     return pd.get_dummies(s, prefix=prefix, drop_first=drop_first, dtype=int)
 
