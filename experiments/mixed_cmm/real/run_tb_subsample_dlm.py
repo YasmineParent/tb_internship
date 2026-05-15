@@ -17,7 +17,6 @@ import sys
 import argparse
 import json
 import warnings
-from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
@@ -125,9 +124,26 @@ def main():
     sparse = [f for f in keep if df[f].sum() < col_threshold]
     print(f"mutations below col_threshold ({col_threshold}): {sparse}", flush=True)
 
-    suffix = ('_lineage' if args.include_lineage else '') + ('_type' if args.include_type else '')
-    output_dir = REPO_ROOT / 'results' / f'tb_subsample_dlm{suffix}_{datetime.now().strftime("%Y%m%d_%H%M")}'
-    output_dir.mkdir(parents=True, exist_ok=True)
+    suffix_parts = []
+    if args.include_lineage:
+        suffix_parts.append('lineage')
+        if args.lineage_merge_below is not None:
+            suffix_parts.append(f'mb{args.lineage_merge_below}')
+        if args.forbid_lineage_to_mic:
+            suffix_parts.append('fbl')
+    if args.include_type:
+        suffix_parts.append('type')
+        if args.forbid_type_to_mic:
+            suffix_parts.append('fbt')
+    suffix_parts.extend([f'mp{args.max_parents}', f'k{args.k_max}', f'mcc{args.min_cluster_count}'])
+    suffix = '_' + '_'.join(suffix_parts)
+    base = REPO_ROOT / 'results' / 'subsampling' / f'tb_subsample_dlm{suffix}'
+    output_dir = base
+    i = 2
+    while output_dir.exists():
+        output_dir = base.with_name(base.name + f'_{i}')
+        i += 1
+    output_dir.mkdir(parents=True)
     with open(output_dir / 'config.json', 'w') as f:
         json.dump({**vars(args), 'mic_col': MIC_COL, 'features': features}, f, indent=2)
 
