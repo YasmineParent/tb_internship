@@ -4,3 +4,6 @@
 [submodule "external/fasterrisk"]
 	path = external/fasterrisk
 	url = git@github.com:YasmineParent/FasterRisk.git
+[submodule "external/riskslim"]
+	path = external/riskslim
+	url = git@github.com:YasmineParent/riskslim.git
