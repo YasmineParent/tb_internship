@@ -2,6 +2,7 @@ import tempfile
 import time
 from pathlib import Path
 
+import networkx as nx
 import pyagrum as gum
 import numpy as np
 import pandas as pd
@@ -69,6 +70,54 @@ def run_cmm(X: np.ndarray, forbidden_edges: set[tuple[int, int]], use_logistic: 
         except RRuntimeError:
             continue
     raise RRuntimeError(f'run_cmm: {max_retries} consecutive attempts failed')
+
+
+def refit_with_stable_graph(X: np.ndarray, stable_edges: list[tuple[int, int]],
+                             use_logistic: bool = True, k_max: int = 6, max_parents: int = 4,
+                             min_cluster_count: int = 4, seed: int = 0,
+                             cont_noise_std: float = 1e-3, max_retries: int = 10) -> tuple:
+    """Refit CMM on full X with topic_graph fixed to stable_edges (post-selection inference).
+
+    Skips structure learning by passing oracle_G=True with the stable DAG as truths['true_g'].
+    _fit_Z_nodes runs as normal and fills betas, gammas, idls, pprobas. Sparse binary columns
+    are dropped per the run_cmm convention; stable edges referencing dropped columns are
+    silently filtered out.
+
+    stable_edges: iterable of (src_idx, tgt_idx) int pairs over columns of X.
+
+    Returns (cmm, kept_indices). kept_indices maps new-column-index -> old-column-index."""
+    is_binary = np.array([np.all(np.isin(X[:, k], [0, 1])) for k in range(X.shape[1])])
+    if use_logistic:
+        X_keep, _, keep = _drop_sparse_binary_cols(
+            X, set(), is_binary, min_count=min_cluster_count * k_max)
+    else:
+        X_keep, keep = X, list(range(X.shape[1]))
+    old_to_new = {old: new for new, old in enumerate(keep)}
+    edges_remapped = [(old_to_new[s], old_to_new[t]) for s, t in stable_edges
+                      if s in old_to_new and t in old_to_new]
+
+    g = nx.DiGraph()
+    g.add_nodes_from(range(len(keep)))
+    g.add_edges_from(edges_remapped)
+
+    rng = np.random.default_rng(seed)
+    is_bin_new = np.array([np.all(np.isin(X_keep[:, k], [0, 1])) for k in range(X_keep.shape[1])])
+    continuous_cols = [j for j in range(X_keep.shape[1]) if not is_bin_new[j]]
+
+    for attempt in range(max_retries):
+        X_fit = X_keep.astype(float).copy()
+        if use_logistic and attempt > 0 and continuous_cols:
+            X_fit[:, continuous_cols] += rng.normal(0, cont_noise_std,
+                                                    (X_fit.shape[0], len(continuous_cols)))
+        ro.r(f'set.seed({seed + attempt})')
+        try:
+            cmm = CD.CausalMixtures.get_method()
+            cmm.fit(X_fit, oracle_G=True, truths={'true_g': g.copy()},
+                    use_logistic=use_logistic, max_parents=max_parents, k_max=k_max)
+            return cmm, keep
+        except RRuntimeError:
+            continue
+    raise RRuntimeError(f'refit_with_stable_graph: {max_retries} consecutive attempts failed')
 
 
 def subsample_cmm(X: np.ndarray, forbidden_edges: set[tuple[int, int]], n_runs: int,
