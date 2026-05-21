@@ -4,23 +4,31 @@ import numpy as np
 import networkx as nx
 
 
-class LogisticSyntheticData:
-    """Continuous-feature linear-Gaussian DAG with a logistic-SCM binary sink Y.
+class LinGaussSyntheticData:
+    """Random linear-Gaussian DAG with a continuous latent sink Y_lat, threshold-binarized.
 
-    Generic causal DAG for the §6.1 method-paper validation. Tests the prior-penalty
-    mechanism on a setup where causal sufficiency holds, so PC / GES / IAMB are all
-    sound prior sources. No latent variables; confounding is mediated only by
-    observed common ancestors.
+    The DAG has p + 1 nodes: 0..p-1 are continuous features, node p is the latent
+    Y_lat (a sink, no outgoing edges). Pa(Y_lat) is the planted set S_star of size
+    k_star, chosen uniformly at random. No latent variables in the causal sense;
+    any non-causal correlation between a feature and Y is mediated by an observed
+    common ancestor.
 
-    The DAG has p + 1 nodes: 0..p-1 are continuous features, node p is Y (a sink
-    by construction). Pa(Y) is the planted sparse set S_star. Mechanisms:
-        - features: x_j = sum_{i in Pa(j)} A[i, j] x_i + N(0, noise_scale^2)
-        - sink Y:   P(Y=+1 | x) = sigma(w_star @ x + w_0_star)
+    Mechanisms (fully linear-Gaussian):
+        - features:  x_j   = sum_{i in Pa(j)} A[i, j] x_i + N(0, noise_scale^2)
+        - latent Y:  Y_lat = w_star @ x + w_0_star + N(0, noise_scale^2)
+        - observed:  y     = 2 * 1[Y_lat > threshold] - 1
 
-    NAMING CONVENTION: features are named 'x_0', ..., 'x_{p-1}', 'y'. The last
-    column is Y (signed binary in self.y, FasterRisk convention).
+    Two views of Y are exposed:
+        - self.y_continuous: Y_lat, used as the target for the causal-discovery stage
+          (PC, GES) so standard continuous CI tests apply throughout the DAG.
+        - self.y: signed binary threshold of Y_lat, used as the target for FasterRisk.
 
-    No CMM dependency; the Erdős-Rényi DAG generator is inlined.
+    This mirrors the TB pipeline (continuous MIC for the causal step, binarized for
+    the classifier) and lets PC use Fisher Z on continuous Y_lat instead of a
+    weaker mixed-data CI test.
+
+    Naming convention: features are 'x_0', ..., 'x_{p-1}', 'y'. Default threshold
+    is the median of Y_lat (~50/50 class balance).
     """
 
     def __init__(self, p: int = 30, n_samples: int = 500,
@@ -28,10 +36,10 @@ class LogisticSyntheticData:
                  w_min: float = 1.0, w_max: float = 3.0,
                  a_min: float = 0.5, a_max: float = 2.0,
                  noise_scale: float = 1.0,
-                 intercept: float | None = None,
+                 intercept: float = 0.0,
+                 threshold: float | None = None,
                  seed: int = 0, max_resample: int = 100):
-        # Hermetic seeding: snapshot caller's RNG state for both np.random and stdlib
-        # random (the inlined ER generator uses np.random; mirror synthetic.py).
+        # snapshot the caller's rngs so seeding here doesn't leak globally
         np_state = np.random.get_state()
         py_state = random.getstate()
         try:
@@ -42,8 +50,8 @@ class LogisticSyntheticData:
             dag = None
             S_star: list[int] = []
             confounded: list[int] = []
-            # Resample if the DAG happens to leave Y with no confounded correlates;
-            # degenerate setup (bootstrap-L1 ~= PC), very rare at p_edge >= 0.15.
+            # resample if the dag happens to leave y with no non-causal correlates;
+            # rare when p_edge >= 0.15
             for _ in range(max_resample):
                 feat_dag = _gen_erdos_dag(p, p_edge)
                 S_star = sorted(np.random.choice(p, size=k_star, replace=False).tolist())
@@ -60,7 +68,7 @@ class LogisticSyntheticData:
                     f"resamples; try increasing p_edge or k_star."
                 )
 
-            # Edge weights for feature edges only; edges into Y are encoded by w_star.
+            # edge weights for feature -> feature edges only; w_star handles edges into Y
             A = np.zeros((p, p))
             for u, v in dag.edges():
                 if v == y_node:
@@ -71,44 +79,40 @@ class LogisticSyntheticData:
             for j in S_star:
                 w_star[j] = np.random.choice([-1.0, 1.0]) * np.random.uniform(w_min, w_max)
 
-            # Single topological pass: linear-Gaussian on features, logistic at the sink.
+            # single topological pass: linear-gaussian everywhere, Y_lat at the sink
+            w_0_star = float(intercept)
             X = np.zeros((n_samples, p))
-            y_signed = np.zeros(n_samples, dtype=int)
-            w_0_star = 0.0
+            y_continuous = np.zeros(n_samples)
             for j in nx.topological_sort(dag):
                 if j == y_node:
-                    linear = X @ w_star
-                    # Default intercept centers the logit so class balance is ~50/50.
-                    w_0_star = (
-                        float(intercept) if intercept is not None
-                        else -float(linear.mean())
+                    y_continuous = (
+                        X @ w_star + w_0_star
+                        + np.random.normal(0.0, noise_scale, size=n_samples)
                     )
-                    probs = _sigmoid(linear + w_0_star)
-                    y_signed = 2 * np.random.binomial(1, probs) - 1
                 else:
                     parents = list(dag.predecessors(j))
                     mean = X[:, parents] @ A[parents, j] if parents else 0.0
                     X[:, j] = mean + np.random.normal(0.0, noise_scale, size=n_samples)
+
+            # default threshold = median(Y_lat) gives ~50/50 class balance
+            tau = float(threshold) if threshold is not None else float(np.median(y_continuous))
+            y_signed = (2 * (y_continuous > tau).astype(int) - 1).astype(int)
         finally:
             np.random.set_state(np_state)
             random.setstate(py_state)
 
         self.X = X
         self.y = y_signed
+        self.y_continuous = y_continuous
         self.dag = dag
         self.y_node = y_node
         self.S_star = set(S_star)
-        # Non-S_star features d-connected to Y; the bootstrap-L1 trap and the
-        # adversarial-q arm both key off this set.
         self.confounded = set(confounded)
         self.w_star = w_star
         self.w_0_star = w_0_star
         self.A = A
+        self.threshold = tau
         self.features = [f'x_{i}' for i in range(p)] + ['y']
-
-
-def _sigmoid(z: np.ndarray) -> np.ndarray:
-    return 1.0 / (1.0 + np.exp(-np.clip(z, -30, 30)))
 
 
 def _gen_erdos_dag(p_nodes: int, p_edge: float) -> nx.DiGraph:
@@ -126,7 +130,7 @@ def _gen_erdos_dag(p_nodes: int, p_edge: float) -> nx.DiGraph:
 
 
 def _confounded_set(dag: nx.DiGraph, y_node: int, S_star: list[int]) -> list[int]:
-    """Non-S_star features d-connected to Y in the marginal (no conditioning).
+    """Non-S_star features that correlate with Y in the marginal (no conditioning).
     Equals Desc(Anc(Y)) \\ S_star \\ {Y}: ancestors of Y, descendants of Pa(Y),
     and features sharing a common ancestor with Y, all in one set."""
     ancestors_of_Y = nx.ancestors(dag, y_node)
