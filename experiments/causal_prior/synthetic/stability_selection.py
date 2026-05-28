@@ -1,17 +1,17 @@
 """Phase A of the §6.1 mechanism test: precompute stability-selection q vectors.
 
-For each cell (seed, p_edge, p, n, k_star), generate the linear-Gaussian-DAG
-synthetic and compute the slow bootstrap-stability q sources (PC, GES,
-bootstrap-L1). Save as .npz files in cache/. Crash-safe: skips cells whose
-output already exists; pass --force to recompute.
+For each cell (seed, p_edge, p, n, k_star) defined by config.SWEEPS, generate
+the linear-Gaussian-DAG synthetic and compute the slow bootstrap-stability q
+sources (PC, GES, bootstrap-L1). Save as .npz files in cache/. Crash-safe:
+skips cells whose output already exists; pass --force to recompute.
 
 The fast q sources (oracle, uniform, adversarial) are derived in Phase B from
 S_star and the confounded set, both saved here.
 
 Usage:
-    python experiments/causal_prior/synthetic/stability_selection.py --scope headline
-    python experiments/causal_prior/synthetic/stability_selection.py --scope robustness
-    python experiments/causal_prior/synthetic/stability_selection.py --scope all
+    python experiments/causal_prior/synthetic/stability_selection.py            # all sweeps
+    python experiments/causal_prior/synthetic/stability_selection.py --sweep p_edge
+    python experiments/causal_prior/synthetic/stability_selection.py --sweep n --B 50
 """
 
 from __future__ import annotations
@@ -19,13 +19,15 @@ from __future__ import annotations
 import argparse
 import sys
 import time
-from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
+from experiments.causal_prior.synthetic.config import (  # noqa: E402
+    SWEEPS, DEFAULT_N_SEEDS, Cell, build_cells,
+)
 from src_tb.data.synthetic_lingauss import LinGaussSyntheticData  # noqa: E402
 from src_tb.causal_recovery.priors import (  # noqa: E402
     pc_stability_q, ges_stability_q, bootstrap_l1_q,
@@ -33,39 +35,6 @@ from src_tb.causal_recovery.priors import (  # noqa: E402
 
 
 CACHE_DIR = Path(__file__).parent / 'cache'
-
-
-@dataclass(frozen=True)
-class Cell:
-    seed: int
-    p_edge: float
-    p: int
-    n: int
-    k_star: int
-
-    @property
-    def filename(self) -> str:
-        return (f'seed{self.seed}_p{self.p}_n{self.n}_k{self.k_star}'
-                f'_pedge{self.p_edge}.npz')
-
-
-HEADLINE_CELLS = [
-    Cell(seed=seed, p_edge=p_edge, p=30, n=500, k_star=5)
-    for seed in range(5)
-    for p_edge in (0.1, 0.2, 0.4)
-]
-
-ROBUSTNESS_CELLS = [
-    Cell(seed=seed, p_edge=0.2, p=p, n=n, k_star=k_star)
-    for seed in range(5)
-    for (p, n, k_star) in [(20, 300, 3), (50, 1000, 7)]
-]
-
-SCOPES: dict[str, list[Cell]] = {
-    'headline': HEADLINE_CELLS,
-    'robustness': ROBUSTNESS_CELLS,
-    'all': HEADLINE_CELLS + ROBUSTNESS_CELLS,
-}
 
 
 def compute_mu_scale(X: np.ndarray, y: np.ndarray) -> float:
@@ -122,7 +91,9 @@ def process_cell(cell: Cell, B: int, cache_dir: Path, force: bool) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument('--scope', choices=list(SCOPES), default='headline')
+    parser.add_argument('--sweep', choices=list(SWEEPS) + ['all'], default='all',
+                        help='which sweep to populate (default: all)')
+    parser.add_argument('--n-seeds', type=int, default=DEFAULT_N_SEEDS)
     parser.add_argument('--cache-dir', type=Path, default=CACHE_DIR)
     parser.add_argument('--B', type=int, default=100,
                         help='bootstrap count for stability sources')
@@ -131,8 +102,8 @@ def main() -> None:
     args = parser.parse_args()
 
     args.cache_dir.mkdir(parents=True, exist_ok=True)
-    cells = SCOPES[args.scope]
-    print(f'scope={args.scope}, {len(cells)} cells, B={args.B}, '
+    cells = build_cells(args.sweep, n_seeds=args.n_seeds)
+    print(f'sweep={args.sweep}, {len(cells)} cells, B={args.B}, '
           f'cache={args.cache_dir}', flush=True)
 
     for i, cell in enumerate(cells, 1):
