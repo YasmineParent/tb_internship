@@ -111,8 +111,16 @@ def pc_stability_q(X: np.ndarray, y_continuous: np.ndarray,
 def ges_stability_q(X: np.ndarray, y_continuous: np.ndarray,
                     B: int = 100, subsample_fraction: float = 0.5,
                     score_func: str = 'local_score_BIC',
+                    max_parents: int | None = 10,
                     rng: np.random.Generator | None = None) -> np.ndarray:
-    """Subsample-stability GES with Gaussian BIC; same adjacency definition as pc_stability_q."""
+    """Subsample-stability GES with Gaussian BIC; same adjacency definition as pc_stability_q.
+
+    The max_parents cap bounds each node's parent-set size during search. Set to
+    a value comfortably above the expected true in-degree (default 10 fits a
+    p=30 / p_edge<=0.4 regime with k_star<=7). Capping prunes the search
+    dramatically with negligible effect on Y's adjacency, which is the only
+    output we use.
+    """
     if rng is None:
         rng = np.random.default_rng()
     n, p = X.shape
@@ -124,7 +132,7 @@ def ges_stability_q(X: np.ndarray, y_continuous: np.ndarray,
         data = np.column_stack([X[idx], y_continuous[idx]])
         with warnings.catch_warnings():
             warnings.simplefilter('ignore')
-            record = ges(data, score_func=score_func, maxP=None)
+            record = ges(data, score_func=score_func, maxP=max_parents)
         adj = record['G'].graph
         for j in range(p):
             if adj[y_idx, j] != 0 or adj[j, y_idx] != 0:
