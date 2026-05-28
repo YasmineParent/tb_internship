@@ -6,3 +6,4 @@ __pycache__/
 .DS_Store
 .claude/
 *.log
+notes/fasterrisk_modification_plan.md
