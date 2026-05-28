@@ -46,7 +46,11 @@ def compute_mu_scale(X: np.ndarray, y: np.ndarray) -> float:
     return float(np.median(0.5 * np.abs(X.T @ y)))
 
 
-def process_cell(cell: Cell, B: int, cache_dir: Path, force: bool) -> None:
+SOURCES = ('pc', 'ges', 'bootstrap_l1')
+
+
+def process_cell(cell: Cell, B: int, cache_dir: Path, force: bool,
+                 sources: tuple[str, ...]) -> None:
     out_path = cache_dir / cell.filename
     if out_path.exists() and not force:
         print(f'  skip {cell.filename} (exists)', flush=True)
@@ -64,9 +68,14 @@ def process_cell(cell: Cell, B: int, cache_dir: Path, force: bool) -> None:
     rng_ges = np.random.default_rng((cell.seed, 1))
     rng_l1  = np.random.default_rng((cell.seed, 2))
 
-    t = time.time(); q_pc  = pc_stability_q(data.X, data.y_continuous, B=B, rng=rng_pc); t_pc  = time.time() - t
-    t = time.time(); q_ges = ges_stability_q(data.X, data.y_continuous, B=B, rng=rng_ges); t_ges = time.time() - t
-    t = time.time(); q_l1  = bootstrap_l1_q(data.X, data.y, B=B, rng=rng_l1); t_l1  = time.time() - t
+    qs: dict[str, np.ndarray] = {}
+    timings: dict[str, float] = {}
+    if 'pc' in sources:
+        t = time.time(); qs['q_pc']  = pc_stability_q(data.X, data.y_continuous, B=B, rng=rng_pc); timings['pc']  = time.time() - t
+    if 'ges' in sources:
+        t = time.time(); qs['q_ges'] = ges_stability_q(data.X, data.y_continuous, B=B, rng=rng_ges); timings['ges'] = time.time() - t
+    if 'bootstrap_l1' in sources:
+        t = time.time(); qs['q_bootstrap_l1'] = bootstrap_l1_q(data.X, data.y, B=B, rng=rng_l1); timings['l1']  = time.time() - t
 
     np.savez(
         out_path,
@@ -81,12 +90,11 @@ def process_cell(cell: Cell, B: int, cache_dir: Path, force: bool) -> None:
         S_star=np.array(sorted(data.S_star), dtype=int),
         confounded=np.array(sorted(data.confounded), dtype=int),
         mu_scale=mu_scale,
-        q_pc=q_pc,
-        q_ges=q_ges,
-        q_bootstrap_l1=q_l1,
+        **qs,
     )
+    timing_str = ', '.join(f'{name} {t:.1f}s' for name, t in timings.items())
     print(f'  saved {cell.filename}: total {time.time()-t_total:.1f}s '
-          f'(pc {t_pc:.1f}s, ges {t_ges:.1f}s, l1 {t_l1:.1f}s)', flush=True)
+          f'({timing_str})', flush=True)
 
 
 def main() -> None:
@@ -97,18 +105,27 @@ def main() -> None:
     parser.add_argument('--cache-dir', type=Path, default=CACHE_DIR)
     parser.add_argument('--B', type=int, default=100,
                         help='bootstrap count for stability sources')
+    parser.add_argument('--sources', type=str, default=','.join(SOURCES),
+                        help=('comma-separated subset of stability sources to compute. '
+                              f'choices: {SOURCES}; default: all'))
     parser.add_argument('--force', action='store_true',
                         help='recompute even if cache file already exists')
     args = parser.parse_args()
 
+    sources = tuple(s.strip() for s in args.sources.split(',') if s.strip())
+    unknown = set(sources) - set(SOURCES)
+    if unknown:
+        parser.error(f'unknown source(s) {unknown}; choose from {SOURCES}')
+
     args.cache_dir.mkdir(parents=True, exist_ok=True)
     cells = build_cells(args.sweep, n_seeds=args.n_seeds)
     print(f'sweep={args.sweep}, {len(cells)} cells, B={args.B}, '
-          f'cache={args.cache_dir}', flush=True)
+          f'sources={sources}, cache={args.cache_dir}', flush=True)
 
     for i, cell in enumerate(cells, 1):
         print(f'[{i}/{len(cells)}] {cell.filename}', flush=True)
-        process_cell(cell, B=args.B, cache_dir=args.cache_dir, force=args.force)
+        process_cell(cell, B=args.B, cache_dir=args.cache_dir, force=args.force,
+                     sources=sources)
 
 
 if __name__ == '__main__':
