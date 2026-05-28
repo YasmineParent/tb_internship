@@ -13,6 +13,7 @@ from __future__ import annotations
 import warnings
 
 import numpy as np
+from joblib import Parallel, delayed
 from sklearn.linear_model import LogisticRegression, LogisticRegressionCV
 from sklearn.preprocessing import StandardScaler
 
@@ -81,64 +82,80 @@ def adversarial_q(p: int, confounded) -> np.ndarray:
     return q
 
 
+def _y_adjacency_from_graph(adj: np.ndarray, p: int) -> np.ndarray:
+    """1 if x_j is adjacent to y (in either direction) in causal-learn's graph encoding."""
+    y_idx = p  # target is appended as the last column
+    return (
+        (adj[y_idx, :p] != 0) | (adj[:p, y_idx] != 0)
+    ).astype(int)
+
+
+def _pc_one_subsample(idx: np.ndarray, X: np.ndarray, y_continuous: np.ndarray,
+                      p: int, alpha: float, indep_test: str) -> np.ndarray:
+    data = np.column_stack([X[idx], y_continuous[idx]])
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore')
+        cg = pc(data, alpha=alpha, indep_test=indep_test, show_progress=False)
+    return _y_adjacency_from_graph(cg.G.graph, p)
+
+
 def pc_stability_q(X: np.ndarray, y_continuous: np.ndarray,
                    B: int = 100, subsample_fraction: float = 0.5,
                    alpha: float = 0.05, indep_test: str = 'fisherz',
+                   n_jobs: int = -1,
                    rng: np.random.Generator | None = None) -> np.ndarray:
-    """Subsample-stability PC: q_j = freq over B runs that x_j is adjacent to y."""
+    """Subsample-stability PC: q_j = freq over B runs that x_j is adjacent to y.
+
+    Bootstrap iterations run in parallel via joblib (n_jobs=-1 by default).
+    Subsample indices are drawn sequentially from rng before dispatch, so the
+    output is bit-identical regardless of n_jobs.
+    """
     if rng is None:
         rng = np.random.default_rng()
     n, p = X.shape
-    y_idx = p  # target is appended as the last column
-    counts = np.zeros(p, dtype=int)
+    indices = [_subsample_indices(n, subsample_fraction, rng) for _ in range(B)]
+    adjacencies = Parallel(n_jobs=n_jobs)(
+        delayed(_pc_one_subsample)(idx, X, y_continuous, p, alpha, indep_test)
+        for idx in indices
+    )
+    return np.sum(adjacencies, axis=0) / B
 
-    for _ in range(B):
-        idx = _subsample_indices(n, subsample_fraction, rng)
-        data = np.column_stack([X[idx], y_continuous[idx]])
-        with warnings.catch_warnings():
-            warnings.simplefilter('ignore')
-            cg = pc(data, alpha=alpha, indep_test=indep_test, show_progress=False)
-        adj = cg.G.graph
-        for j in range(p):
-            # adjacency in either direction; PC may orient edges away from y
-            # when CI tests are underpowered, and adjacency is the support-relevant signal
-            if adj[y_idx, j] != 0 or adj[j, y_idx] != 0:
-                counts[j] += 1
 
-    return counts / B
+def _ges_one_subsample(idx: np.ndarray, X: np.ndarray, y_continuous: np.ndarray,
+                       p: int, score_func: str, max_parents: int | None) -> np.ndarray:
+    data = np.column_stack([X[idx], y_continuous[idx]])
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore')
+        record = ges(data, score_func=score_func, maxP=max_parents)
+    return _y_adjacency_from_graph(record['G'].graph, p)
 
 
 def ges_stability_q(X: np.ndarray, y_continuous: np.ndarray,
                     B: int = 100, subsample_fraction: float = 0.5,
                     score_func: str = 'local_score_BIC',
                     max_parents: int | None = 10,
+                    n_jobs: int = -1,
                     rng: np.random.Generator | None = None) -> np.ndarray:
     """Subsample-stability GES with Gaussian BIC; same adjacency definition as pc_stability_q.
 
     The max_parents cap bounds each node's parent-set size during search. Set to
     a value comfortably above the expected true in-degree (default 10 fits a
-    p=30 / p_edge<=0.4 regime with k_star<=7). Capping prunes the search
-    dramatically with negligible effect on Y's adjacency, which is the only
-    output we use.
+    p=30 / p_edge<=0.4 regime with k_star<=7). Capping prunes the search with
+    negligible effect on Y's adjacency, the only output we use.
+
+    Bootstrap iterations run in parallel via joblib (n_jobs=-1 by default).
+    Subsample indices are drawn sequentially from rng before dispatch, so the
+    output is bit-identical regardless of n_jobs.
     """
     if rng is None:
         rng = np.random.default_rng()
     n, p = X.shape
-    y_idx = p
-    counts = np.zeros(p, dtype=int)
-
-    for _ in range(B):
-        idx = _subsample_indices(n, subsample_fraction, rng)
-        data = np.column_stack([X[idx], y_continuous[idx]])
-        with warnings.catch_warnings():
-            warnings.simplefilter('ignore')
-            record = ges(data, score_func=score_func, maxP=max_parents)
-        adj = record['G'].graph
-        for j in range(p):
-            if adj[y_idx, j] != 0 or adj[j, y_idx] != 0:
-                counts[j] += 1
-
-    return counts / B
+    indices = [_subsample_indices(n, subsample_fraction, rng) for _ in range(B)]
+    adjacencies = Parallel(n_jobs=n_jobs)(
+        delayed(_ges_one_subsample)(idx, X, y_continuous, p, score_func, max_parents)
+        for idx in indices
+    )
+    return np.sum(adjacencies, axis=0) / B
 
 
 def bootstrap_l1_q(X: np.ndarray, y: np.ndarray,
