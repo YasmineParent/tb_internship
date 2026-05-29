@@ -70,10 +70,13 @@ def process_cell(cell: Cell, B: int, cache_dir: Path, force: bool,
 
     qs: dict[str, np.ndarray] = {}
     timings: dict[str, float] = {}
+    ges_timeouts = 0
     if 'pc' in sources:
         t = time.time(); qs['q_pc']  = pc_stability_q(data.X, data.y_continuous, B=B, rng=rng_pc); timings['pc']  = time.time() - t
     if 'ges' in sources:
-        t = time.time(); qs['q_ges'] = ges_stability_q(data.X, data.y_continuous, B=B, rng=rng_ges); timings['ges'] = time.time() - t
+        t = time.time()
+        qs['q_ges'], ges_timeouts = ges_stability_q(data.X, data.y_continuous, B=B, rng=rng_ges)
+        timings['ges'] = time.time() - t
     if 'bootstrap_l1' in sources:
         t = time.time(); qs['q_bootstrap_l1'] = bootstrap_l1_q(data.X, data.y, B=B, rng=rng_l1); timings['l1']  = time.time() - t
 
@@ -90,11 +93,13 @@ def process_cell(cell: Cell, B: int, cache_dir: Path, force: bool,
         S_star=np.array(sorted(data.S_star), dtype=int),
         confounded=np.array(sorted(data.confounded), dtype=int),
         mu_scale=mu_scale,
+        ges_n_timeouts=ges_timeouts,
         **qs,
     )
     timing_str = ', '.join(f'{name} {t:.1f}s' for name, t in timings.items())
+    extra = f' [ges timeouts: {ges_timeouts}/{B}]' if 'ges' in sources and ges_timeouts else ''
     print(f'  saved {cell.filename}: total {time.time()-t_total:.1f}s '
-          f'({timing_str})', flush=True)
+          f'({timing_str}){extra}', flush=True)
 
 
 def main() -> None:

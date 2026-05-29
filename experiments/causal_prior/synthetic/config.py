@@ -13,13 +13,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 
-DEFAULTS = dict(p=30, n=500, k_star=5, p_edge=0.2)
+DEFAULTS = dict(p=15, n=500, k_star=5, p_edge=0.2)
 
 SWEEPS: dict[str, list] = {
-    'p_edge':  [0.1, 0.2, 0.4],   # headline: confounding axis
-    'n':       [300, 500, 1000],  # sample-size robustness
-    'p':       [10, 30, 50],      # feature-count robustness
-    'k_star':  [3, 5, 7],         # true-sparsity robustness
+    'p_edge':  [0.1, 0.2, 0.4],          # headline: confounding axis
+    'n':       [150, 200, 300, 500, 1000],  # sample-size robustness; 150 keeps a TB-adjacent point
+    'p':       [10, 15, 20, 30],         # feature-count robustness; p>=20 probes GES degradation
+    'k_star':  [3, 5, 7],                # true-sparsity robustness
 }
 
 PARAM_LABELS = {

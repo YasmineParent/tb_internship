@@ -10,6 +10,7 @@ and GES sources assume the target is the last column of the input matrix.
 
 from __future__ import annotations
 
+import signal
 import warnings
 
 import numpy as np
@@ -121,27 +122,53 @@ def pc_stability_q(X: np.ndarray, y_continuous: np.ndarray,
     return np.sum(adjacencies, axis=0) / B
 
 
+class _GESTimeout(Exception):
+    pass
+
+
 def _ges_one_subsample(idx: np.ndarray, X: np.ndarray, y_continuous: np.ndarray,
-                       p: int, score_func: str, max_parents: int | None) -> np.ndarray:
+                       p: int, score_func: str, max_parents: int | None,
+                       timeout_seconds: float) -> tuple[np.ndarray, bool]:
+    """Returns (adjacency, timed_out). On timeout the adjacency is zeros.
+
+    Uses SIGALRM; safe inside loky workers since each runs in its own process
+    and the GES call holds the worker's main thread.
+    """
     data = np.column_stack([X[idx], y_continuous[idx]])
-    with warnings.catch_warnings():
-        warnings.simplefilter('ignore')
-        record = ges(data, score_func=score_func, maxP=max_parents)
-    return _y_adjacency_from_graph(record['G'].graph, p)
+
+    def _on_alarm(signum, frame):
+        raise _GESTimeout
+
+    prev_handler = signal.signal(signal.SIGALRM, _on_alarm)
+    signal.setitimer(signal.ITIMER_REAL, timeout_seconds)
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore')
+            record = ges(data, score_func=score_func, maxP=max_parents)
+        adj = _y_adjacency_from_graph(record['G'].graph, p)
+        return adj, False
+    except _GESTimeout:
+        return np.zeros(p, dtype=int), True
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, prev_handler)
 
 
 def ges_stability_q(X: np.ndarray, y_continuous: np.ndarray,
                     B: int = 100, subsample_fraction: float = 0.5,
                     score_func: str = 'local_score_BIC',
                     max_parents: int | None = 10,
+                    timeout_seconds: float = 60.0,
                     n_jobs: int = -1,
-                    rng: np.random.Generator | None = None) -> np.ndarray:
-    """Subsample-stability GES with Gaussian BIC; same adjacency definition as pc_stability_q.
+                    rng: np.random.Generator | None = None
+                    ) -> tuple[np.ndarray, int]:
+    """Subsample-stability GES with Gaussian BIC; returns (q, n_timeouts).
 
-    The max_parents cap bounds each node's parent-set size during search. Set to
-    a value comfortably above the expected true in-degree (default 10 fits a
-    p=30 / p_edge<=0.4 regime with k_star<=7). Capping prunes the search with
-    negligible effect on Y's adjacency, the only output we use.
+    A per-subsample SIGALRM timeout (60s default) bounds each call so a slow
+    GES run cannot stall the whole bootstrap. Timed-out subsamples contribute
+    zeros to the count, so q remains a clean frequency. At p=15 the timeout
+    is rarely hit; at p=30 most subsamples will saturate it (intended; this is
+    the reported finding for GES at that scale).
 
     Bootstrap iterations run in parallel via joblib (n_jobs=-1 by default).
     Subsample indices are drawn sequentially from rng before dispatch, so the
@@ -151,11 +178,15 @@ def ges_stability_q(X: np.ndarray, y_continuous: np.ndarray,
         rng = np.random.default_rng()
     n, p = X.shape
     indices = [_subsample_indices(n, subsample_fraction, rng) for _ in range(B)]
-    adjacencies = Parallel(n_jobs=n_jobs)(
-        delayed(_ges_one_subsample)(idx, X, y_continuous, p, score_func, max_parents)
+    results = Parallel(n_jobs=n_jobs)(
+        delayed(_ges_one_subsample)(
+            idx, X, y_continuous, p, score_func, max_parents, timeout_seconds,
+        )
         for idx in indices
     )
-    return np.sum(adjacencies, axis=0) / B
+    adjacencies = [adj for adj, _ in results]
+    n_timeouts = sum(1 for _, timed_out in results if timed_out)
+    return np.sum(adjacencies, axis=0) / B, n_timeouts
 
 
 def bootstrap_l1_q(X: np.ndarray, y: np.ndarray,
