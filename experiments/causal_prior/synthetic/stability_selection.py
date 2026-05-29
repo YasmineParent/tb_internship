@@ -115,6 +115,10 @@ def main() -> None:
                               f'choices: {SOURCES}; default: all'))
     parser.add_argument('--force', action='store_true',
                         help='recompute even if cache file already exists')
+    parser.add_argument('--p', type=int, help='override DEFAULTS p (feature count)')
+    parser.add_argument('--n', type=int, help='override DEFAULTS n (sample size)')
+    parser.add_argument('--k-star', dest='k_star', type=int,
+                        help='override DEFAULTS k_star (true sparsity)')
     args = parser.parse_args()
 
     sources = tuple(s.strip() for s in args.sources.split(',') if s.strip())
@@ -122,9 +126,13 @@ def main() -> None:
     if unknown:
         parser.error(f'unknown source(s) {unknown}; choose from {SOURCES}')
 
+    overrides = {k: v for k, v in {'p': args.p, 'n': args.n, 'k_star': args.k_star}.items()
+                 if v is not None}
+
     args.cache_dir.mkdir(parents=True, exist_ok=True)
-    cells = build_cells(args.sweep, n_seeds=args.n_seeds)
-    print(f'sweep={args.sweep}, {len(cells)} cells, B={args.B}, '
+    cells = build_cells(args.sweep, n_seeds=args.n_seeds, overrides=overrides)
+    print(f'sweep={args.sweep}, overrides={overrides or "{}"}, '
+          f'{len(cells)} cells, B={args.B}, '
           f'sources={sources}, cache={args.cache_dir}', flush=True)
 
     for i, cell in enumerate(cells, 1):

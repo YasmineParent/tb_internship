@@ -16,7 +16,7 @@ from dataclasses import dataclass
 DEFAULTS = dict(p=15, n=500, k_star=5, p_edge=0.2)
 
 SWEEPS: dict[str, list] = {
-    'p_edge':  [0.1, 0.2, 0.4],          # headline: confounding axis
+    'p_edge':  [0.1, 0.2, 0.3, 0.4, 0.5, 0.6],  # headline at p=30, n=300 op-point; robustness at p=15
     'n':       [150, 200, 300, 500, 1000],  # sample-size robustness; 150 keeps a TB-adjacent point
     'p':       [10, 15, 20, 30],         # feature-count robustness; p>=20 probes GES degradation
     'k_star':  [3, 5, 7],                # true-sparsity robustness
@@ -46,10 +46,13 @@ class Cell:
                 f'_pedge{self.p_edge}.npz')
 
 
-def build_cells(scope: str, n_seeds: int = DEFAULT_N_SEEDS) -> list[Cell]:
+def build_cells(scope: str, n_seeds: int = DEFAULT_N_SEEDS,
+                overrides: dict | None = None) -> list[Cell]:
     """Return the (deduplicated, sorted) cells for one sweep or all sweeps.
 
     scope: a sweep name from SWEEPS, or 'all' to take the union across sweeps.
+    overrides: optional dict of {p, n, k_star, p_edge} values to override
+        DEFAULTS for the base shape; the sweep axis still varies on top.
     """
     if scope == 'all':
         sweep_names = list(SWEEPS.keys())
@@ -59,10 +62,11 @@ def build_cells(scope: str, n_seeds: int = DEFAULT_N_SEEDS) -> list[Cell]:
         raise ValueError(f'unknown scope {scope!r}; must be one of '
                          f'{list(SWEEPS.keys()) + ["all"]}')
 
+    base = {**DEFAULTS, **(overrides or {})}
     cells: set[Cell] = set()
     for sweep in sweep_names:
         for val in SWEEPS[sweep]:
-            params = {**DEFAULTS, sweep: val}
+            params = {**base, sweep: val}
             for seed in range(n_seeds):
                 cells.add(Cell(seed=seed, **params))
     return sorted(cells)

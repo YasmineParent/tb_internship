@@ -158,17 +158,17 @@ def ges_stability_q(X: np.ndarray, y_continuous: np.ndarray,
                     B: int = 100, subsample_fraction: float = 0.5,
                     score_func: str = 'local_score_BIC',
                     max_parents: int | None = 10,
-                    timeout_seconds: float = 60.0,
+                    timeout_seconds: float = 1800.0,
                     n_jobs: int = -1,
                     rng: np.random.Generator | None = None
                     ) -> tuple[np.ndarray, int]:
     """Subsample-stability GES with Gaussian BIC; returns (q, n_timeouts).
 
-    A per-subsample SIGALRM timeout (60s default) bounds each call so a slow
+    A per-subsample SIGALRM timeout (1800s default) bounds each call so a slow
     GES run cannot stall the whole bootstrap. Timed-out subsamples contribute
-    zeros to the count, so q remains a clean frequency. At p=15 the timeout
-    is rarely hit; at p=30 most subsamples will saturate it (intended; this is
-    the reported finding for GES at that scale).
+    zeros to the count, so q remains a clean frequency. At p<=20 the timeout
+    rarely fires; at p=30 dense cells some subsamples will saturate it
+    (intended; ges_n_timeouts is recorded per cell).
 
     Bootstrap iterations run in parallel via joblib (n_jobs=-1 by default).
     Subsample indices are drawn sequentially from rng before dispatch, so the
