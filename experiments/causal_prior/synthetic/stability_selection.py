@@ -2,11 +2,14 @@
 
 For each cell (seed, p_edge, p, n, k_star) defined by config.SWEEPS, generate
 the linear-Gaussian-DAG synthetic and compute the slow bootstrap-stability q
-sources (PC, GES, bootstrap-L1). Save as .npz files in cache/. Crash-safe:
-skips cells whose output already exists; pass --force to recompute.
+sources (PC, GES, bootstrap-L1). Save one CSV per cell in cache/ containing
+the q vectors, S_star, confounded, mu_scale, ges_n_timeouts. X and y are
+not stored; the recovery sweep regenerates them deterministically from the
+seed via LinGaussSyntheticData. Crash-safe: skips cells whose output
+already exists (recognizes legacy .npz files too); pass --force to recompute.
 
-The fast q sources (oracle, uniform, adversarial) are derived in Phase B from
-S_star and the confounded set, both saved here.
+The fast q sources (oracle, uniform, adversarial) are derived in the
+recovery sweep from S_star and confounded, both saved here.
 
 Usage:
     python experiments/causal_prior/synthetic/stability_selection.py            # all sweeps
@@ -17,6 +20,8 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import csv
+import json
 import sys
 import time
 from pathlib import Path
@@ -52,8 +57,10 @@ SOURCES = ('pc', 'ges', 'bootstrap_l1')
 def process_cell(cell: Cell, B: int, cache_dir: Path, force: bool,
                  sources: tuple[str, ...]) -> None:
     out_path = cache_dir / cell.filename
-    if out_path.exists() and not force:
-        print(f'  skip {cell.filename} (exists)', flush=True)
+    legacy_path = cache_dir / f'{cell.basename}.npz'  # pre-CSV runs land here
+    if not force and (out_path.exists() or legacy_path.exists()):
+        existing = out_path if out_path.exists() else legacy_path
+        print(f'  skip {existing.name} (exists)', flush=True)
         return
 
     t_total = time.time()
@@ -80,22 +87,26 @@ def process_cell(cell: Cell, B: int, cache_dir: Path, force: bool,
     if 'bootstrap_l1' in sources:
         t = time.time(); qs['q_bootstrap_l1'] = bootstrap_l1_q(data.X, data.y, B=B, rng=rng_l1); timings['l1']  = time.time() - t
 
-    np.savez(
-        out_path,
-        seed=cell.seed,
-        p_edge=cell.p_edge,
-        p=cell.p,
-        n=cell.n,
-        k_star=cell.k_star,
-        X=data.X,
-        y=data.y,
-        y_continuous=data.y_continuous,
-        S_star=np.array(sorted(data.S_star), dtype=int),
-        confounded=np.array(sorted(data.confounded), dtype=int),
-        mu_scale=mu_scale,
-        ges_n_timeouts=ges_timeouts,
-        **qs,
-    )
+    row = {
+        'seed': cell.seed,
+        'p': cell.p,
+        'n': cell.n,
+        'k_star': cell.k_star,
+        'p_edge': cell.p_edge,
+        'mu_scale': mu_scale,
+        'ges_n_timeouts': ges_timeouts,
+        'S_star': json.dumps(sorted(int(j) for j in data.S_star)),
+        'confounded': json.dumps(sorted(int(j) for j in data.confounded)),
+        'q_pc': json.dumps(qs['q_pc'].tolist()) if 'q_pc' in qs else '',
+        'q_ges': json.dumps(qs['q_ges'].tolist()) if 'q_ges' in qs else '',
+        'q_bootstrap_l1': json.dumps(qs['q_bootstrap_l1'].tolist()) if 'q_bootstrap_l1' in qs else '',
+    }
+    # X, y are not stored: recovery_sweep regenerates them deterministically
+    # from (seed, p, n, k_star, p_edge) via LinGaussSyntheticData.
+    with out_path.open('w', newline='') as f:
+        writer = csv.DictWriter(f, fieldnames=list(row.keys()))
+        writer.writeheader()
+        writer.writerow(row)
     timing_str = ', '.join(f'{name} {t:.1f}s' for name, t in timings.items())
     extra = f' [ges timeouts: {ges_timeouts}/{B}]' if 'ges' in sources and ges_timeouts else ''
     print(f'  saved {cell.filename}: total {time.time()-t_total:.1f}s '
