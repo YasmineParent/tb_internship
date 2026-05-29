@@ -41,13 +41,9 @@ class Cell:
     seed: int
 
     @property
-    def basename(self) -> str:
-        return (f'seed{self.seed}_p{self.p}_n{self.n}_k{self.k_star}'
-                f'_pedge{self.p_edge}')
-
-    @property
     def filename(self) -> str:
-        return f'{self.basename}.csv'
+        return (f'seed{self.seed}_p{self.p}_n{self.n}_k{self.k_star}'
+                f'_pedge{self.p_edge}.npz')
 
 
 def build_cells(scope: str, n_seeds: int = DEFAULT_N_SEEDS,
