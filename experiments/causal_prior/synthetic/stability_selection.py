@@ -29,7 +29,7 @@ from experiments.causal_prior.synthetic.config import (  # noqa: E402
     SWEEPS, DEFAULT_N_SEEDS, Cell, build_cells,
 )
 from src_tb.data.synthetic_lingauss import LinGaussSyntheticData  # noqa: E402
-from src_tb.causal_recovery.priors import (  # noqa: E402
+from src_tb.causal_discovery.priors import (  # noqa: E402
     pc_stability_q, ges_stability_q, bootstrap_l1_q,
 )
 

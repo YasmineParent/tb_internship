@@ -35,8 +35,8 @@ from pgmpy.estimators import PC, GES, ExpertKnowledge
 
 from experiments.mixed_cmm.synthetic.config import DEFAULTS, SWEEPS, GRAPH_METRICS
 from src_tb.data.synthetic import SyntheticData
-from src_tb.causal_recovery.cmm_utils import run_cmm
-from src_tb.causal_recovery.evaluation import score_recovered, serialize_edges
+from src_tb.causal_discovery.cmm_utils import run_cmm
+from src_tb.causal_discovery.evaluation import score_recovered, serialize_edges
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 METHODS = ['cmm_logistic', 'pc_pillai', 'ges_cg', 'empty']

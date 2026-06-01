@@ -95,7 +95,7 @@ class SyntheticData:
 
     NAMING CONVENTION (load-bearing): features are named 'mut_0', 'mut_1', ..., 'mut_{N-2}', 'Y'.
     The last column is always the continuous target named 'Y'; all others are binary mutations.
-    src_tb.causal_recovery.evaluation.score_recovered relies on these exact names to split
+    src_tb.causal_discovery.evaluation.score_recovered relies on these exact names to split
     metrics by edge class. If you rename, update both files.
     """
 
