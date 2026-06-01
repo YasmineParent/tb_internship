@@ -100,6 +100,76 @@ def selectivity_per_cell(phase_a: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def selectivity_summary(
+    merged: pd.DataFrame,
+    mu_relative: float = 1.0,
+    metric: str = 'S_precision',
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Two pivot tables for the selectivity reframe: sel(q) and prior gain.
+
+    Returns (sel_table, gain_table), each indexed by q_source with one column
+    per p_edge value present in merged. Values are averaged across seeds.
+
+    sel_table[q_source, p_edge]   = mean sel(q) = mean(q on C) / mean(q on S*)
+    gain_table[q_source, p_edge]  = mean metric at mu_relative
+                                    minus mean metric at mu_relative = 0
+                                    (positive = the prior helps over vanilla)
+
+    Hard-threshold baseline rows (q_source = '<src>_hard_t<t>') are excluded;
+    use them via plot_soft_vs_hard for the §6.4 comparison.
+    """
+    soft = merged[~merged['q_source'].astype(str).str.contains('_hard_', na=False)]
+    mu_vals = sorted(soft['mu_relative'].unique())
+    mu_pick = min(mu_vals, key=lambda v: abs(v - mu_relative))
+
+    sel_table = (soft.groupby(['q_source', 'p_edge'])['sel_q']
+                     .mean().unstack().round(2))
+
+    at_mu  = soft[soft['mu_relative'] == mu_pick].groupby(['q_source', 'p_edge'])[metric].mean()
+    at_van = soft[soft['mu_relative'] == 0.0   ].groupby(['q_source', 'p_edge'])[metric].mean()
+    gain_table = (at_mu - at_van).unstack().round(2)
+    gain_table.name = f'{metric} gain (mu_rel={mu_pick:.2f} minus vanilla)'
+
+    return sel_table, gain_table
+
+
+def selectivity_ordered(
+    merged: pd.DataFrame,
+    mu_relative: float = 1.0,
+    metric: str = 'S_precision',
+    drop_undefined: bool = True,
+) -> pd.DataFrame:
+    """Long-form table sorted by sel(q) for the selectivity-reframe headline.
+
+    Returns one row per (q_source, p_edge) with columns sel_q, vanilla,
+    at_mu, gain. Sorted ascending by sel_q so the eye scans monotone-
+    decreasing gain top to bottom: the operationalised form of the §6.1
+    selectivity claim.
+
+    drop_undefined=True drops rows where sel(q) is NaN (e.g. GES missing
+    at dense cells) or inf (e.g. q on S* is zero, PC at moderate p_edge,
+    adversarial by construction). Set False to inspect those edge cases.
+    """
+    soft = merged[~merged['q_source'].astype(str).str.contains('_hard_', na=False)]
+    mu_vals = sorted(soft['mu_relative'].unique())
+    mu_pick = min(mu_vals, key=lambda v: abs(v - mu_relative))
+
+    sel    = soft.groupby(['q_source', 'p_edge'])['sel_q'].mean()
+    at_mu  = soft[soft['mu_relative'] == mu_pick].groupby(['q_source', 'p_edge'])[metric].mean()
+    at_van = soft[soft['mu_relative'] == 0.0   ].groupby(['q_source', 'p_edge'])[metric].mean()
+
+    table = pd.DataFrame({
+        'sel_q':   sel,
+        'vanilla': at_van,
+        'at_mu':   at_mu,
+        'gain':    at_mu - at_van,
+    }).reset_index()
+
+    if drop_undefined:
+        table = table[np.isfinite(table['sel_q'])]
+    return table.sort_values('sel_q').round(2).reset_index(drop=True)
+
+
 def aggregate_seeds(
     df: pd.DataFrame,
     metrics: Sequence[str] = ('S_recall', 'S_precision', 'C_inclusion'),

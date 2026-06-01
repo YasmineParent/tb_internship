@@ -143,64 +143,6 @@ def plot_recovery_vs_mu_facet(
     return fig
 
 
-def plot_recovery_vs_selectivity(
-    merged: pd.DataFrame,
-    mu_relative_ref: float = 1.0,
-    metric: str = 'S_precision',
-    color_by: str = 'p_edge',
-    ax: Axes | None = None,
-) -> Axes:
-    """Scatter: x = sel(q), y = recovery at fixed mu_relative.
-
-    merged must contain columns sel_q, q_source, p_edge, mu_relative, <metric>.
-    One point per (q_source, p_edge, seed) at mu_relative_ref. Colored by p_edge
-    by default; switch to color_by='q_source' to color by source family.
-    """
-    if ax is None:
-        _, ax = plt.subplots(figsize=(7, 5))
-    soft = _filter_soft(merged)
-    # find the mu_relative grid value closest to the target
-    mu_vals = sorted(soft['mu_relative'].unique())
-    mu_pick = min(mu_vals, key=lambda v: abs(v - mu_relative_ref))
-    sub = soft[soft['mu_relative'] == mu_pick].copy()
-    # finite sel only (drop NaN and inf)
-    sub = sub[np.isfinite(sub['sel_q'])]
-
-    if color_by == 'p_edge':
-        norm = plt.Normalize(sub['p_edge'].min(), sub['p_edge'].max())
-        cmap = plt.cm.viridis
-        for src in sub['q_source'].unique():
-            s_sub = sub[sub['q_source'] == src]
-            ax.scatter(s_sub['sel_q'], s_sub[metric],
-                       c=cmap(norm(s_sub['p_edge'])),
-                       edgecolor='black', linewidth=0.4, s=30,
-                       marker={'oracle':'*','uniform':'s','adversarial':'X',
-                               'pc':'o','ges':'^','bootstrap_l1':'D'}.get(src, 'o'),
-                       label=SOURCE_LABELS.get(src, src))
-        sm = plt.cm.ScalarMappable(norm=norm, cmap=cmap)
-        sm.set_array([])
-        plt.colorbar(sm, ax=ax, label=r'$p_{\mathrm{edge}}$')
-    elif color_by == 'q_source':
-        for src in sub['q_source'].unique():
-            s_sub = sub[sub['q_source'] == src]
-            ax.scatter(s_sub['sel_q'], s_sub[metric],
-                       color=SOURCE_COLORS.get(src, 'k'),
-                       edgecolor='black', linewidth=0.4, s=30,
-                       label=SOURCE_LABELS.get(src, src))
-    else:
-        raise ValueError(f'color_by must be p_edge or q_source, got {color_by}')
-
-    ax.set_xscale('log')
-    ax.set_xlabel(r'selectivity ratio $\bar q_C / \bar q_{S^*}$')
-    ax.set_ylabel(metric.replace('_', ' '))
-    ax.set_title(f'recovery vs selectivity at $\\mu_{{\\mathrm{{rel}}}} \\approx {mu_pick:.2f}$',
-                 fontsize=10)
-    ax.set_ylim(0, 1)
-    ax.grid(True, alpha=0.3)
-    ax.legend(fontsize=8, loc='best')
-    return ax
-
-
 def plot_soft_vs_hard(
     df: pd.DataFrame,
     q_source: str,
