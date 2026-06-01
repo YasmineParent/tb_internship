@@ -1,8 +1,11 @@
-"""Causal-evidence prior sources for the §6.1 mechanism test.
+"""Discovery-source q vectors via Meinshausen-Bühlmann stability selection.
 
-Each function returns q in [0,1]^p, the evidence vector over the p features
-(excluding the target). At mu=0 in the modified FasterRisk objective, q is
-irrelevant; at mu>0 it biases support selection toward high-q features.
+Each function returns q in [0,1]^p over the p features (target excluded),
+where q_j is the frequency over B subsamples that feature j is judged adjacent
+to (or selected for) the target by the underlying discovery procedure (PC,
+GES, or L1-logistic). These are the realistic inputs to the modified
+FasterRisk soft prior; analysis-time synthetic q sources (oracle, uniform,
+adversarial) live in src_tb/support_recovery/q_sources.py.
 
 The synthetic generator orders columns as 'x_0', ..., 'x_{p-1}', 'y'; the PC
 and GES sources assume the target is the last column of the input matrix.
@@ -57,30 +60,6 @@ def _subsample_indices(n: int, fraction: float,
                        rng: np.random.Generator) -> np.ndarray:
     m = int(np.floor(fraction * n))
     return rng.choice(n, size=m, replace=False)
-
-
-def oracle_q(p: int, S_star, sigma: float = 0.0,
-             rng: np.random.Generator | None = None) -> np.ndarray:
-    """Ground-truth indicator on S_star with optional Gaussian noise clipped to [0,1]."""
-    q = np.zeros(p)
-    q[list(S_star)] = 1.0
-    if sigma > 0:
-        if rng is None:
-            rng = np.random.default_rng()
-        q = q + rng.normal(0.0, sigma, size=p)
-    return np.clip(q, 0.0, 1.0)
-
-
-def uniform_q(p: int, value: float = 0.5) -> np.ndarray:
-    """Constant q; contract check (at mu>0 with uniform q, optimal support is vanilla)."""
-    return np.full(p, value)
-
-
-def adversarial_q(p: int, confounded) -> np.ndarray:
-    """Indicator on the confounded-correlate set; deliberately wrong q."""
-    q = np.zeros(p)
-    q[list(confounded)] = 1.0
-    return q
 
 
 def _y_adjacency_from_graph(adj: np.ndarray, p: int) -> np.ndarray:

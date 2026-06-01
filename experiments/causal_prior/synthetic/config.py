@@ -1,11 +1,15 @@
 """Shared experiment configuration for the §6.1 mechanism test.
 
-DEFAULTS is the canonical operating point; each sweep in SWEEPS varies one
-axis at a time, holding the others at DEFAULTS. The default value is included
-in every sweep so it acts as a reference point in cross-sweep plots.
+DEFAULTS is the canonical operating point (the p=30 n=300 headline shape);
+each sweep in SWEEPS varies one axis at a time holding the others at
+DEFAULTS. The default value is included in every sweep so it acts as a
+reference point in cross-sweep plots.
 
-The 'p_edge' sweep is the headline (causal-vs-predictive gap as a function of
-confounding); the other three are robustness slices.
+The 'p_edge' sweep produces the headline figures (selectivity-driven
+recovery as a function of confounding); the other three are robustness
+slices defending the anchor cell against op-point cherry-pick concerns.
+CLI overrides (--p, --n, --k-star in stability_selection.py) allow
+shooting at alternate op-points without touching DEFAULTS.
 """
 
 from __future__ import annotations
@@ -13,7 +17,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 
-DEFAULTS = dict(p=15, n=500, k_star=5, p_edge=0.2)
+DEFAULTS = dict(p=30, n=300, k_star=5, p_edge=0.2)
 
 SWEEPS: dict[str, list] = {
     'p_edge':  [0.1, 0.2, 0.3, 0.4, 0.5, 0.6],  # headline at p=30, n=300 op-point; robustness at p=15

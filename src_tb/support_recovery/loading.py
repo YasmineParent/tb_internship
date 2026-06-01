@@ -10,11 +10,13 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Sequence
 
 import numpy as np
 import pandas as pd
 
 from .metrics import selectivity
+from .q_sources import oracle_q, uniform_q, adversarial_q
 
 
 CELL_ID_COLS = ['seed', 'p', 'n', 'k_star', 'p_edge']
@@ -76,14 +78,10 @@ def selectivity_per_cell(phase_a: pd.DataFrame) -> pd.DataFrame:
         p = cell['p']
         S = cell['S_star']
         C = cell['confounded']
-
-        oracle_q = np.zeros(p);       oracle_q[S] = 1.0
-        uniform_q = np.full(p, 0.5)
-        adversarial_q = np.zeros(p);  adversarial_q[C] = 1.0
         sources: dict[str, np.ndarray] = {
-            'oracle':      oracle_q,
-            'uniform':     uniform_q,
-            'adversarial': adversarial_q,
+            'oracle':      oracle_q(p, S, sigma=0.0),
+            'uniform':     uniform_q(p, 0.5),
+            'adversarial': adversarial_q(p, C),
         }
         for key, label in (('q_pc', 'pc'), ('q_ges', 'ges'),
                            ('q_bootstrap_l1', 'bootstrap_l1')):
@@ -104,8 +102,8 @@ def selectivity_per_cell(phase_a: pd.DataFrame) -> pd.DataFrame:
 
 def aggregate_seeds(
     df: pd.DataFrame,
-    metrics: list[str] = ('S_recall', 'S_precision', 'C_inclusion'),
-    by: list[str] = ('q_source', 'mu_relative', 'p_edge'),
+    metrics: Sequence[str] = ('S_recall', 'S_precision', 'C_inclusion'),
+    by: Sequence[str] = ('q_source', 'mu_relative', 'p_edge'),
 ) -> pd.DataFrame:
     """Group-and-aggregate: mean and SEM for each metric across seeds.
 

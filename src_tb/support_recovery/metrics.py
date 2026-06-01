@@ -10,7 +10,7 @@ def support_recovery_metrics(
     support: Iterable[int],
     S_star: Iterable[int],
     confounded: Iterable[int],
-) -> dict[str, float]:
+) -> dict[str, float | int]:
     """Set-recovery metrics of a fitted FR support against ground-truth causes.
 
     Returns S_recall (= |sup & S*| / |S*|), S_precision (= |sup & S*| / |sup|),

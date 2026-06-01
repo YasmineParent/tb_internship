@@ -193,29 +193,36 @@ def plot_soft_vs_hard(
     ax: Axes,
     q_source: str,
     metric: str = 'S_precision',
-    mu_relative_best: float | None = None,
+    mu_relative: float = 1.0,
+    oracle_mu_per_seed: bool = False,
 ) -> Axes:
     """Soft prior (at chosen mu_relative) vs hard pre-selection (threshold sweep).
 
-    Lines: soft prior at mu_relative_best (default: argmax over mu); hard at
-    each threshold in the data. Both functions of p_edge.
+    Lines: soft prior at the given mu_relative (default 1.0, a fixed point in
+    the headroom region) and hard at each threshold in the data. Both as a
+    function of p_edge.
+
+    oracle_mu_per_seed=True instead picks the per-(p_edge, seed) argmax mu on
+    the same data; this is an oracle upper bound on soft-prior performance and
+    only fair as a sensitivity check, not a baseline comparison.
     """
     soft = _filter_soft(df[df['q_source'] == q_source])
     hard = df[df['q_source'].str.startswith(f'{q_source}_hard_t')]
     if hard.empty:
         raise ValueError(f'no hard-threshold rows for {q_source}')
 
-    # soft: best mu_relative per (p_edge, seed), then mean across seeds
-    if mu_relative_best is None:
+    if oracle_mu_per_seed:
         soft_best = soft.loc[soft.groupby(['p_edge', 'seed'])[metric].idxmax()]
+        soft_label = f'{SOURCE_LABELS[q_source]} soft (oracle best $\\mu$ per seed)'
     else:
         mu_vals = sorted(soft['mu_relative'].unique())
-        mu_pick = min(mu_vals, key=lambda v: abs(v - mu_relative_best))
+        mu_pick = min(mu_vals, key=lambda v: abs(v - mu_relative))
         soft_best = soft[soft['mu_relative'] == mu_pick]
+        soft_label = f'{SOURCE_LABELS[q_source]} soft ($\\mu_{{\\mathrm{{rel}}}}={mu_pick:.2f}$)'
     soft_curve = soft_best.groupby('p_edge')[metric].agg(['mean', 'sem']).reset_index()
     ax.plot(soft_curve['p_edge'], soft_curve['mean'],
             marker='o', color=SOURCE_COLORS[q_source], linewidth=2,
-            label=f'{SOURCE_LABELS[q_source]} soft (best $\\mu$)')
+            label=soft_label)
     ax.fill_between(soft_curve['p_edge'],
                     soft_curve['mean'] - soft_curve['sem'].fillna(0),
                     soft_curve['mean'] + soft_curve['sem'].fillna(0),
