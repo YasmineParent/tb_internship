@@ -56,9 +56,9 @@ def _filter_soft(df: pd.DataFrame) -> pd.DataFrame:
 
 def plot_recovery_vs_mu(
     df: pd.DataFrame,
-    ax: Axes,
     p_edge: float,
     metric: str = 'S_precision',
+    ax: Axes | None = None,
     show_vanilla_anchor: bool = True,
 ) -> Axes:
     """Single-panel recovery vs mu_relative at one p_edge.
@@ -66,8 +66,10 @@ def plot_recovery_vs_mu(
     One line per q_source, mean across seeds with SEM band. Adversarial,
     uniform, oracle styled distinctly. The mu_relative = 0 point is the
     vanilla anchor (same value across sources) and is drawn as a horizontal
-    dashed line if show_vanilla_anchor.
+    dashed line if show_vanilla_anchor. If ax is None, creates a figure.
     """
+    if ax is None:
+        _, ax = plt.subplots(figsize=(7, 5))
     soft = _filter_soft(df[df['p_edge'] == p_edge])
     if soft.empty:
         raise ValueError(f'no rows at p_edge={p_edge}')
@@ -107,37 +109,46 @@ def plot_recovery_vs_mu(
 
 def plot_recovery_vs_mu_facet(
     df: pd.DataFrame,
-    axes,
     metric: str = 'S_precision',
     p_edges: list[float] | None = None,
     show_legend_in: int = 0,
-) -> None:
-    """Multi-panel facet: one panel per p_edge value.
+    ncols: int = 3,
+    figsize_per_panel: tuple[float, float] = (5.0, 4.0),
+):
+    """Multi-panel facet: one panel per p_edge value, one row of figures.
 
-    axes: array-like of matplotlib Axes (flat order matches p_edges).
-    p_edges: defaults to sorted unique p_edge values in df.
-    show_legend_in: which panel index gets the legend (default 0).
+    Creates the figure internally and returns it. p_edges defaults to the
+    sorted unique p_edge values in df. The legend is drawn in the panel at
+    index show_legend_in.
     """
     if p_edges is None:
         p_edges = sorted(df['p_edge'].unique())
-    if len(axes) < len(p_edges):
-        raise ValueError(f'need >= {len(p_edges)} axes, got {len(axes)}')
+    nrows = (len(p_edges) + ncols - 1) // ncols
+    fig, axes = plt.subplots(nrows, ncols,
+                             figsize=(figsize_per_panel[0] * ncols,
+                                      figsize_per_panel[1] * nrows),
+                             sharey=True)
+    flat = axes.flatten() if hasattr(axes, 'flatten') else [axes]
     for i, pe in enumerate(p_edges):
-        ax = axes[i]
-        plot_recovery_vs_mu(df, ax, p_edge=pe, metric=metric)
+        plot_recovery_vs_mu(df, p_edge=pe, metric=metric, ax=flat[i])
         if i != show_legend_in:
-            leg = ax.get_legend()
+            leg = flat[i].get_legend()
             if leg is not None:
                 leg.remove()
-    axes[show_legend_in].legend(fontsize=8, loc='best')
+    # hide unused panels
+    for j in range(len(p_edges), len(flat)):
+        flat[j].set_visible(False)
+    flat[show_legend_in].legend(fontsize=8, loc='best')
+    fig.tight_layout()
+    return fig
 
 
 def plot_recovery_vs_selectivity(
     merged: pd.DataFrame,
-    ax: Axes,
-    mu_relative_ref: float,
+    mu_relative_ref: float = 1.0,
     metric: str = 'S_precision',
     color_by: str = 'p_edge',
+    ax: Axes | None = None,
 ) -> Axes:
     """Scatter: x = sel(q), y = recovery at fixed mu_relative.
 
@@ -145,6 +156,8 @@ def plot_recovery_vs_selectivity(
     One point per (q_source, p_edge, seed) at mu_relative_ref. Colored by p_edge
     by default; switch to color_by='q_source' to color by source family.
     """
+    if ax is None:
+        _, ax = plt.subplots(figsize=(7, 5))
     soft = _filter_soft(merged)
     # find the mu_relative grid value closest to the target
     mu_vals = sorted(soft['mu_relative'].unique())
@@ -190,11 +203,11 @@ def plot_recovery_vs_selectivity(
 
 def plot_soft_vs_hard(
     df: pd.DataFrame,
-    ax: Axes,
     q_source: str,
     metric: str = 'S_precision',
     mu_relative: float = 1.0,
     oracle_mu_per_seed: bool = False,
+    ax: Axes | None = None,
 ) -> Axes:
     """Soft prior (at chosen mu_relative) vs hard pre-selection (threshold sweep).
 
@@ -206,6 +219,8 @@ def plot_soft_vs_hard(
     the same data; this is an oracle upper bound on soft-prior performance and
     only fair as a sensitivity check, not a baseline comparison.
     """
+    if ax is None:
+        _, ax = plt.subplots(figsize=(7, 5))
     soft = _filter_soft(df[df['q_source'] == q_source])
     hard = df[df['q_source'].str.startswith(f'{q_source}_hard_t')]
     if hard.empty:
