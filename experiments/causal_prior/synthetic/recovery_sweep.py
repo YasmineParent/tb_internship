@@ -43,6 +43,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from src_tb.causal_discovery.priors import (  # noqa: E402
     oracle_q, uniform_q, adversarial_q,
 )
+from src_tb.support_recovery.metrics import support_recovery_metrics  # noqa: E402
 
 
 CACHE_DIR = Path(__file__).parent / 'cache'
@@ -82,17 +83,6 @@ def build_q_sources(cell, p: int, S_star: list[int],
         if key in cell.files:
             sources[key.removeprefix('q_')] = cell[key]
     return sources
-
-
-def recovery_metrics(support: list[int], S_star: set[int],
-                     confounded: set[int]) -> tuple[float, float, float]:
-    """Returns (S_recall, S_precision, C_inclusion). All are 0 on empty support."""
-    sup = set(support)
-    if not sup:
-        return 0.0, 0.0, 0.0
-    s_hit = len(sup & S_star)
-    c_hit = len(sup & confounded)
-    return s_hit / len(S_star), s_hit / len(sup), c_hit / len(sup)
 
 
 def fit_and_score(FasterRisk, X: np.ndarray, y: np.ndarray, K: int,
@@ -161,13 +151,14 @@ def process_cell(cell_path: Path, out_path: Path, n_mu_log: int) -> str:
     for q_source, q in sources.items():
         for mu, mu_rel in zip(mu_grid, mu_relative_grid):
             support, fit_seconds = fit_and_score(FasterRisk, X, y, K, mu, q)
-            s_recall, s_prec, c_incl = recovery_metrics(support, S_set, C_set)
+            m = support_recovery_metrics(support, S_set, C_set)
             rows.append({**base_id,
                 'q_source': q_source,
                 'mu': float(mu), 'mu_relative': float(mu_rel),
                 'K': K,
-                'support': json.dumps(support), 'k_actual': len(support),
-                'S_recall': s_recall, 'S_precision': s_prec, 'C_inclusion': c_incl,
+                'support': json.dumps(support), 'k_actual': m['k_actual'],
+                'S_recall': m['S_recall'], 'S_precision': m['S_precision'],
+                'C_inclusion': m['C_inclusion'],
                 'fit_seconds': fit_seconds,
             })
 
@@ -179,13 +170,14 @@ def process_cell(cell_path: Path, out_path: Path, n_mu_log: int) -> str:
             support, K_eff, fit_seconds = fit_hard_threshold(
                 FasterRisk, X, y, K, sources[q_name], t_thresh,
             )
-            s_recall, s_prec, c_incl = recovery_metrics(support, S_set, C_set)
+            m = support_recovery_metrics(support, S_set, C_set)
             rows.append({**base_id,
                 'q_source': f'{q_name}_hard_t{t_thresh}',
                 'mu': 0.0, 'mu_relative': 0.0,
                 'K': K_eff,
-                'support': json.dumps(support), 'k_actual': len(support),
-                'S_recall': s_recall, 'S_precision': s_prec, 'C_inclusion': c_incl,
+                'support': json.dumps(support), 'k_actual': m['k_actual'],
+                'S_recall': m['S_recall'], 'S_precision': m['S_precision'],
+                'C_inclusion': m['C_inclusion'],
                 'fit_seconds': fit_seconds,
             })
 
