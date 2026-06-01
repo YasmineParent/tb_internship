@@ -46,8 +46,8 @@ from src_tb.support_recovery.q_sources import (  # noqa: E402
 from src_tb.support_recovery.metrics import support_recovery_metrics  # noqa: E402
 
 
-CACHE_DIR = Path(__file__).parent / 'cache'
-OUT_DIR = Path(__file__).parent / 'recovery'
+CACHE_DIR = Path(__file__).parent / 'results' / 'cache'
+OUT_DIR = Path(__file__).parent / 'results' / 'recovery'
 N_MU_LOG = 12          # log-spaced points in (mu_scale * 10^-2, mu_scale * 10^1)
 K_MULTIPLIER = 2       # K = K_MULTIPLIER * k_star
 SOURCES = ('oracle', 'uniform', 'adversarial', 'pc', 'ges', 'bootstrap_l1')
