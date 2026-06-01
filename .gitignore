@@ -7,4 +7,3 @@ __pycache__/
 .claude/
 *.log
 notes/fasterrisk_modification_plan.md
-results/causal_prior/
