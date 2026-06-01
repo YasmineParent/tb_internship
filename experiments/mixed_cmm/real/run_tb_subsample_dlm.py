@@ -137,7 +137,7 @@ def main():
             suffix_parts.append('fbt')
     suffix_parts.extend([f'mp{args.max_parents}', f'k{args.k_max}', f'mcc{args.min_cluster_count}'])
     suffix = '_' + '_'.join(suffix_parts)
-    base = REPO_ROOT / 'results' / 'subsampling' / f'tb_subsample_dlm{suffix}'
+    base = REPO_ROOT / 'results' / 'mixed_cmm' / 'subsampling' / f'tb_subsample_dlm{suffix}'
     output_dir = base
     i = 2
     while output_dir.exists():

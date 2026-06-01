@@ -17,7 +17,7 @@ from src_tb.data.load_tb import load_tb_data, prevalence_filter, lineage_dummies
 
 
 DATA_PATH = REPO_ROOT / 'data' / 'real' / 'processed' / 'tb_pheno_geno_clean.csv'
-STABILITY_CSV = REPO_ROOT / 'results' / 'subsampling' / 'tb_subsampling_dlm_mp4_k6_mcc4' / 'with_lineage' / 'edge_stability.csv'
+STABILITY_CSV = REPO_ROOT / 'results' / 'mixed_cmm' / 'subsampling' / 'tb_subsampling_dlm_mp4_k6_mcc4' / 'with_lineage' / 'edge_stability.csv'
 MIC_COL = 'dlm_mic'
 THRESHOLD = 0.5
 

@@ -34,7 +34,8 @@ from src_tb.causal_discovery.priors import (  # noqa: E402
 )
 
 
-CACHE_DIR = Path(__file__).parent / 'results' / 'cache'
+REPO_ROOT = Path(__file__).resolve().parents[3]
+CACHE_DIR = REPO_ROOT / 'results' / 'causal_prior' / 'synthetic' / 'cache'
 
 
 def compute_mu_scale(X: np.ndarray, y: np.ndarray) -> float:

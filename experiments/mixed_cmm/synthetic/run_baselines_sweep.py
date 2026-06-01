@@ -157,7 +157,7 @@ def main():
         n_seeds = args.n_seeds
         sweeps = SWEEPS
 
-    output_dir = REPO_ROOT / 'results' / f'baselines_{datetime.now().strftime("%Y%m%d_%H%M")}'
+    output_dir = REPO_ROOT / 'results' / 'mixed_cmm' / f'baselines_{datetime.now().strftime("%Y%m%d_%H%M")}'
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = str(output_dir / 'results.csv')
 

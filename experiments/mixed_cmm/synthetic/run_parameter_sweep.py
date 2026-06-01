@@ -81,7 +81,7 @@ def main():
     parser.add_argument('--n_seeds', type=int, default=10)
     args = parser.parse_args()
 
-    output_dir = REPO_ROOT / 'results' / f'sweep_{datetime.now().strftime("%Y%m%d_%H%M")}'
+    output_dir = REPO_ROOT / 'results' / 'mixed_cmm' / f'sweep_{datetime.now().strftime("%Y%m%d_%H%M")}'
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = str(output_dir / 'results.csv')
 
