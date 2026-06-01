@@ -228,11 +228,12 @@ def main() -> None:
     print(f'cache={args.cache_dir}, {len(cell_paths)} cells, '
           f'n_jobs={args.n_jobs}, out={args.out_dir}', flush=True)
 
-    messages = Parallel(n_jobs=args.n_jobs, verbose=0)(
+    # return_as='generator' streams completed results so we get per-cell progress;
+    # default tuple-return buffers everything until the whole sweep finishes
+    for m in Parallel(n_jobs=args.n_jobs, return_as='generator')(
         delayed(_process_one_safe)(p, args.out_dir, args.force, args.n_mu_log)
         for p in cell_paths
-    )
-    for m in messages:
+    ):
         print(f'  {m}', flush=True)
 
 
