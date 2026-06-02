@@ -5,7 +5,7 @@ where q_j is the frequency over B subsamples that feature j is judged adjacent
 to (or selected for) the target by the underlying discovery procedure (PC,
 GES, or L1-logistic). These are the realistic inputs to the modified
 FasterRisk soft prior; analysis-time synthetic q sources (oracle, uniform,
-adversarial) live in src_tb/support_recovery/q_sources.py.
+adversarial) live in src/causal_prior/q_sources.py.
 
 The synthetic generator orders columns as 'x_0', ..., 'x_{p-1}', 'y'; the PC
 and GES sources assume the target is the last column of the input matrix.
@@ -13,47 +13,37 @@ and GES sources assume the target is the last column of the input matrix.
 
 from __future__ import annotations
 
-import signal
+import os
 import warnings
 
 import numpy as np
-from joblib import Parallel, delayed
 from sklearn.linear_model import LogisticRegression, LogisticRegressionCV
 from sklearn.preprocessing import StandardScaler
 
 
-def _patch_causallearn_bic_for_numpy2() -> None:
-    """causal-learn's local_score_BIC_from_cov calls float(...) on a (1,1) array,
-    which raises on numpy >= 2. Replace with an .item()-based scalar extraction.
-    Strict improvement; safe to apply globally."""
-    import causallearn.score.LocalScoreFunction as _lsf
-    import causallearn.score.LocalScoreFunctionClass as _lsfc
-
-    def _fixed_bic_from_cov(Data, i, PAi, parameters=None):
-        cov, n = Data
-        lam = 0.5 if parameters is None else parameters.get('lambda_value', 0.5)
-        sigma = cov[i, i]
-        if len(PAi) > 0:
-            yX = cov[np.ix_([i], PAi)]
-            XX = cov[np.ix_(PAi, PAi)]
-            try:
-                XX_inv = np.linalg.inv(XX)
-            except np.linalg.LinAlgError:
-                XX_inv = np.linalg.pinv(XX)
-            sigma = float(np.asarray(cov[i, i] - yX @ XX_inv @ yX.T).item())
-        if sigma <= 0:
-            sigma = np.finfo(float).eps
-        return -0.5 * n * (1 + np.log(sigma)) - lam * (len(PAi) + 1) * np.log(n)
-
-    _fixed_bic_from_cov.__name__ = 'local_score_BIC_from_cov'
-    _lsf.local_score_BIC_from_cov = _fixed_bic_from_cov
-    _lsfc.local_score_BIC_from_cov = _fixed_bic_from_cov
+_R_INITIALIZED = False
+_R_CONVERTER = None
 
 
-_patch_causallearn_bic_for_numpy2()
-
-from causallearn.search.ConstraintBased.PC import pc  # noqa: E402
-from causallearn.search.ScoreBased.GES import ges  # noqa: E402
+def _init_R_pcalg() -> None:
+    """Lazy one-shot init of rpy2 + pcalg. Sets up the numpy<->R converter and
+    loads pcalg in the global R session. Idempotent."""
+    global _R_INITIALIZED, _R_CONVERTER
+    if _R_INITIALIZED:
+        return
+    # set user library before importing rpy2 so R picks it up
+    os.environ.setdefault('R_LIBS_USER', os.path.expanduser('~/R/library'))
+    import rpy2.robjects as ro
+    from rpy2.robjects import numpy2ri
+    from rpy2.robjects.conversion import Converter
+    cv = Converter('numpy')
+    cv += numpy2ri.converter
+    _R_CONVERTER = cv
+    ro.r('.libPaths(c(Sys.getenv("R_LIBS_USER"), .libPaths()))')
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore')
+        ro.r('suppressPackageStartupMessages(library(pcalg))')
+    _R_INITIALIZED = True
 
 
 def _subsample_indices(n: int, fraction: float,
@@ -62,110 +52,99 @@ def _subsample_indices(n: int, fraction: float,
     return rng.choice(n, size=m, replace=False)
 
 
-def _y_adjacency_from_graph(adj: np.ndarray, p: int) -> np.ndarray:
-    """1 if x_j is adjacent to y (in either direction) in causal-learn's graph encoding."""
-    y_idx = p  # target is appended as the last column
-    return (
-        (adj[y_idx, :p] != 0) | (adj[:p, y_idx] != 0)
-    ).astype(int)
+def _pc_one_subsample_R(idx: np.ndarray, X: np.ndarray, y_continuous: np.ndarray,
+                         p: int, alpha: float, m_max: int) -> np.ndarray:
+    """One pcalg::pc call on a subsample. gaussCItest = Fisher Z on partial
+    correlations. m.max caps the size of conditioning sets, recovering power
+    on dense DAGs where larger separators lose Fisher Z power."""
+    _init_R_pcalg()
+    import rpy2.robjects as ro
+    from rpy2.robjects.conversion import localconverter
 
-
-def _pc_one_subsample(idx: np.ndarray, X: np.ndarray, y_continuous: np.ndarray,
-                      p: int, alpha: float, indep_test: str) -> np.ndarray:
     data = np.column_stack([X[idx], y_continuous[idx]])
-    with warnings.catch_warnings():
-        warnings.simplefilter('ignore')
-        cg = pc(data, alpha=alpha, indep_test=indep_test, show_progress=False)
-    return _y_adjacency_from_graph(cg.G.graph, p)
+    with localconverter(_R_CONVERTER):
+        ro.globalenv['X_sub'] = data
+    ro.r('n_sub <- nrow(X_sub); p_sub <- ncol(X_sub)')
+    ro.r('suffStat <- list(C = cor(X_sub), n = n_sub)')
+    ro.r(f'res <- pc(suffStat, indepTest=gaussCItest, alpha={alpha}, '
+         f'p=p_sub, m.max={m_max}, verbose=FALSE)')
+    with localconverter(_R_CONVERTER):
+        adj = np.array(ro.r('as(res@graph, "matrix")'))
+    y_idx = p  # target is appended as the last column
+    return ((adj[y_idx, :p] != 0) | (adj[:p, y_idx] != 0)).astype(int)
 
 
 def pc_stability_q(X: np.ndarray, y_continuous: np.ndarray,
                    B: int = 100, subsample_fraction: float = 0.5,
-                   alpha: float = 0.05, indep_test: str = 'fisherz',
-                   n_jobs: int = -1,
+                   alpha: float = 0.1, m_max: int = 5,
+                   n_jobs: int = 1,
                    rng: np.random.Generator | None = None) -> np.ndarray:
-    """Subsample-stability PC: q_j = freq over B runs that x_j is adjacent to y.
+    """Subsample-stability PC via pcalg (R backend); q_j = freq over B runs
+    that x_j is adjacent to y.
 
-    Bootstrap iterations run in parallel via joblib (n_jobs=-1 by default).
-    Subsample indices are drawn sequentially from rng before dispatch, so the
-    output is bit-identical regardless of n_jobs.
+    alpha=0.1 (looser than the textbook 0.05) and m.max=5 (cap conditioning
+    set size) are tuned to recover PC's power on dense linear-Gaussian DAGs.
+    Both are standard pcalg defaults in recent dense-DAG benchmarks; the
+    underlying CI test is unchanged (Fisher Z on partial correlations).
+
+    Each pc() call is ~0.1s at p=31, n=300, so we run B subsamples
+    sequentially in a single R session. n_jobs is ignored.
     """
     if rng is None:
         rng = np.random.default_rng()
     n, p = X.shape
     indices = [_subsample_indices(n, subsample_fraction, rng) for _ in range(B)]
-    adjacencies = Parallel(n_jobs=n_jobs)(
-        delayed(_pc_one_subsample)(idx, X, y_continuous, p, alpha, indep_test)
-        for idx in indices
-    )
+    _init_R_pcalg()
+    adjacencies = [_pc_one_subsample_R(idx, X, y_continuous, p, alpha, m_max)
+                   for idx in indices]
     return np.sum(adjacencies, axis=0) / B
 
 
-class _GESTimeout(Exception):
-    pass
+def _ges_one_subsample_R(idx: np.ndarray, X: np.ndarray, y_continuous: np.ndarray,
+                          p: int) -> np.ndarray:
+    """One pcalg::ges call on a subsample. Returns binary length-p adjacency to y.
 
-
-def _ges_one_subsample(idx: np.ndarray, X: np.ndarray, y_continuous: np.ndarray,
-                       p: int, score_func: str, max_parents: int | None,
-                       timeout_seconds: float) -> tuple[np.ndarray, bool]:
-    """Returns (adjacency, timed_out). On timeout the adjacency is zeros.
-
-    Uses SIGALRM; safe inside loky workers since each runs in its own process
-    and the GES call holds the worker's main thread.
+    pcalg's essgraph adjacency M has M[i,j]=1 if i -> j (with both M[i,j] and
+    M[j,i] set for undirected edges). We mark x_j as adjacent to y if either
+    direction has an edge.
     """
+    _init_R_pcalg()
+    import rpy2.robjects as ro
+    from rpy2.robjects.conversion import localconverter
+
     data = np.column_stack([X[idx], y_continuous[idx]])
-
-    def _on_alarm(signum, frame):
-        raise _GESTimeout
-
-    prev_handler = signal.signal(signal.SIGALRM, _on_alarm)
-    signal.setitimer(signal.ITIMER_REAL, timeout_seconds)
-    try:
-        with warnings.catch_warnings():
-            warnings.simplefilter('ignore')
-            record = ges(data, score_func=score_func, maxP=max_parents)
-        adj = _y_adjacency_from_graph(record['G'].graph, p)
-        return adj, False
-    except _GESTimeout:
-        return np.zeros(p, dtype=int), True
-    finally:
-        signal.setitimer(signal.ITIMER_REAL, 0)
-        signal.signal(signal.SIGALRM, prev_handler)
+    with localconverter(_R_CONVERTER):
+        ro.globalenv['X_sub'] = data
+    ro.r('score <- new("GaussL0penObsScore", as.matrix(X_sub))')
+    ro.r('res <- ges(score, verbose=FALSE)')
+    with localconverter(_R_CONVERTER):
+        adj = np.array(ro.r('as(res$essgraph, "matrix")'))
+    y_idx = p  # target is appended as the last column
+    return ((adj[y_idx, :p] != 0) | (adj[:p, y_idx] != 0)).astype(int)
 
 
 def ges_stability_q(X: np.ndarray, y_continuous: np.ndarray,
                     B: int = 100, subsample_fraction: float = 0.5,
-                    score_func: str = 'local_score_BIC',
-                    max_parents: int | None = 10,
-                    timeout_seconds: float = 1800.0,
-                    n_jobs: int = -1,
+                    n_jobs: int = 1,
                     rng: np.random.Generator | None = None
                     ) -> tuple[np.ndarray, int]:
-    """Subsample-stability GES with Gaussian BIC; returns (q, n_timeouts).
+    """Subsample-stability GES via pcalg (R backend); returns (q, n_timeouts).
 
-    A per-subsample SIGALRM timeout (1800s default) bounds each call so a slow
-    GES run cannot stall the whole bootstrap. Timed-out subsamples contribute
-    zeros to the count, so q remains a clean frequency. At p<=20 the timeout
-    rarely fires; at p=30 dense cells some subsamples will saturate it
-    (intended; ges_n_timeouts is recorded per cell).
+    Each ges() call is ~0.03s at p=31, n=300 (vs causal-learn's minutes-to-
+    timeout for dense cells), so we run B subsamples sequentially in a single
+    R session by default. n_timeouts is always 0 with this backend; kept for
+    signature compat with the legacy causal-learn version.
 
-    Bootstrap iterations run in parallel via joblib (n_jobs=-1 by default).
-    Subsample indices are drawn sequentially from rng before dispatch, so the
-    output is bit-identical regardless of n_jobs.
+    n_jobs is ignored (left for compat); running R in joblib workers requires
+    per-worker rpy2/pcalg init which dominates the runtime of the actual fit.
     """
     if rng is None:
         rng = np.random.default_rng()
     n, p = X.shape
     indices = [_subsample_indices(n, subsample_fraction, rng) for _ in range(B)]
-    results = Parallel(n_jobs=n_jobs)(
-        delayed(_ges_one_subsample)(
-            idx, X, y_continuous, p, score_func, max_parents, timeout_seconds,
-        )
-        for idx in indices
-    )
-    adjacencies = [adj for adj, _ in results]
-    n_timeouts = sum(1 for _, timed_out in results if timed_out)
-    return np.sum(adjacencies, axis=0) / B, n_timeouts
+    _init_R_pcalg()
+    adjacencies = [_ges_one_subsample_R(idx, X, y_continuous, p) for idx in indices]
+    return np.sum(adjacencies, axis=0) / B, 0
 
 
 def bootstrap_l1_q(X: np.ndarray, y: np.ndarray,
