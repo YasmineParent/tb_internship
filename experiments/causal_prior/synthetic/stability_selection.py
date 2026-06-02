@@ -28,8 +28,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from experiments.causal_prior.synthetic.config import (  # noqa: E402
     SWEEPS, DEFAULT_N_SEEDS, Cell, build_cells,
 )
-from src_tb.data.synthetic_lingauss import LinGaussSyntheticData  # noqa: E402
-from src_tb.causal_discovery.priors import (  # noqa: E402
+from src.data.synthetic_lingauss import LinGaussSyntheticData  # noqa: E402
+from src.causal_prior.priors import (  # noqa: E402
     pc_stability_q, ges_stability_q, bootstrap_l1_q,
 )
 
@@ -107,7 +107,8 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument('--sweep', choices=list(SWEEPS) + ['all'], default='all',
                         help='which sweep to populate (default: all)')
-    parser.add_argument('--n-seeds', type=int, default=DEFAULT_N_SEEDS)
+    parser.add_argument('--n-seeds', type=int, default=None,
+                        help='override per-sweep SEED_COUNTS (uniform across sweeps)')
     parser.add_argument('--cache-dir', type=Path, default=CACHE_DIR)
     parser.add_argument('--B', type=int, default=100,
                         help='bootstrap count for stability sources')

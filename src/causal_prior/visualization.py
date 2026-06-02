@@ -1,6 +1,6 @@
 """Plot functions for the §6.1 figures. Accept tidy DataFrames, plot to axes.
 
-Conventions matching src_tb/causal_discovery/visualization.plot_sweep:
+Conventions matching src/causal_discovery/visualization.plot_sweep:
 - tab10 color palette
 - mean line + SEM band on each curve
 - y-axis [0, 1] for recovery metrics
@@ -20,21 +20,21 @@ from matplotlib.axes import Axes
 # Source palette: tab10 for the discovery + L1 sources; black/gray/red for the
 # synthetic-q sources so the eye separates "real" from "constructed".
 SOURCE_COLORS: dict[str, str] = {
-    'oracle':       'black',
+    'oracle':       plt.cm.tab10(3),  # red
+    'ges':          plt.cm.tab10(2),  # green
+    'pc':           plt.cm.tab10(0),  # blue
+    'bootstrap_l1': plt.cm.tab10(1),  # orange
     'uniform':      'gray',
-    'adversarial':  'crimson',
-    'pc':           plt.cm.tab10(0),
-    'ges':          plt.cm.tab10(2),
-    'bootstrap_l1': plt.cm.tab10(1),
+    'adversarial':  'black',
 }
 
 SOURCE_LINESTYLES: dict[str, str] = {
-    'oracle':       '--',
+    'oracle':       '-',
+    'ges':          '-',
+    'pc':           '-',
+    'bootstrap_l1': '-',
     'uniform':      ':',
     'adversarial':  '--',
-    'pc':           '-',
-    'ges':          '-',
-    'bootstrap_l1': '-',
 }
 
 SOURCE_ORDER: list[str] = ['oracle', 'ges', 'pc', 'bootstrap_l1', 'uniform', 'adversarial']
@@ -54,29 +54,35 @@ def _filter_soft(df: pd.DataFrame) -> pd.DataFrame:
     return df[~df['q_source'].str.contains('_hard_', na=False)]
 
 
+FACET_LABELS: dict[str, str] = {
+    'p_edge': r'p_{\mathrm{edge}}',
+    'n':      'n',
+    'p':      'p',
+    'k_star': r'k^{*}',
+}
+
+
 def plot_recovery_vs_mu(
     df: pd.DataFrame,
-    p_edge: float,
     metric: str = 'S_precision',
     ax: Axes | None = None,
+    title: str | None = None,
     show_vanilla_anchor: bool = True,
 ) -> Axes:
-    """Single-panel recovery vs mu_relative at one p_edge.
+    """Single-panel recovery vs mu_relative for a pre-filtered cell.
 
-    One line per q_source, mean across seeds with SEM band. Adversarial,
-    uniform, oracle styled distinctly. The mu_relative = 0 point is the
-    vanilla anchor (same value across sources) and is drawn as a horizontal
-    dashed line if show_vanilla_anchor. If ax is None, creates a figure.
+    Caller is responsible for filtering df to one cell (one combination of
+    p, n, k_star, p_edge across seeds). One line per q_source, mean across
+    seeds with SEM band. If ax is None, creates a figure. If title is None,
+    builds one from the unique cell ids in df.
     """
     if ax is None:
         _, ax = plt.subplots(figsize=(7, 5))
-    soft = _filter_soft(df[df['p_edge'] == p_edge])
+    soft = _filter_soft(df)
     if soft.empty:
-        raise ValueError(f'no rows at p_edge={p_edge}')
+        raise ValueError('no rows in df')
 
-    # one mean per (q_source, mu_relative); SEM across seeds
     g = soft.groupby(['q_source', 'mu_relative'])[metric].agg(['mean', 'sem']).reset_index()
-    # vanilla anchor = the shared mu=0 value across sources
     if show_vanilla_anchor:
         vanilla = g[g['mu_relative'] == 0.0]['mean'].mean()
         ax.axhline(vanilla, color='lightgray', linestyle='-', linewidth=1, zorder=0,
@@ -85,7 +91,6 @@ def plot_recovery_vs_mu(
     sources_present = [s for s in SOURCE_ORDER if s in g['q_source'].unique()]
     for src in sources_present:
         sub = g[g['q_source'] == src].sort_values('mu_relative')
-        # drop mu=0 from the curve (it's the anchor, shared across sources)
         sub = sub[sub['mu_relative'] > 0]
         if sub.empty:
             continue
@@ -102,45 +107,111 @@ def plot_recovery_vs_mu(
     ax.set_xlabel(r'$\mu_{\mathrm{relative}}$')
     ax.set_ylabel(metric.replace('_', ' '))
     ax.set_ylim(0, 1)
-    ax.set_title(f'$p_{{\\mathrm{{edge}}}} = {p_edge}$', fontsize=10)
+    if title is None:
+        # default title: list the cell dims that are unique in df
+        parts = [f'{col}={df[col].iloc[0]}' for col in ('p', 'n', 'k_star', 'p_edge')
+                 if col in df.columns and df[col].nunique() == 1]
+        title = ', '.join(parts)
+    ax.set_title(title, fontsize=10)
     ax.grid(True, alpha=0.3)
+    ax.legend(fontsize=8, loc='best')
     return ax
 
 
 def plot_recovery_vs_mu_facet(
     df: pd.DataFrame,
+    facet_col: str,
     metric: str = 'S_precision',
-    p_edges: list[float] | None = None,
+    facet_values: list | None = None,
     show_legend_in: int = 0,
     ncols: int = 3,
     figsize_per_panel: tuple[float, float] = (5.0, 4.0),
 ):
-    """Multi-panel facet: one panel per p_edge value, one row of figures.
+    """Multi-panel facet along facet_col (e.g. 'p_edge', 'n', 'p', 'k_star').
 
-    Creates the figure internally and returns it. p_edges defaults to the
-    sorted unique p_edge values in df. The legend is drawn in the panel at
-    index show_legend_in.
+    Caller pre-filters df to a single sweep (one column varying, others fixed).
+    Creates the figure internally and returns it. facet_values defaults to the
+    sorted unique values of facet_col in df. Legend is drawn in panel show_legend_in.
     """
-    if p_edges is None:
-        p_edges = sorted(df['p_edge'].unique())
-    nrows = (len(p_edges) + ncols - 1) // ncols
+    if facet_col not in df.columns:
+        raise ValueError(f'facet_col {facet_col!r} not in df')
+    if facet_values is None:
+        facet_values = sorted(df[facet_col].unique())
+    label = FACET_LABELS.get(facet_col, facet_col)
+    nrows = (len(facet_values) + ncols - 1) // ncols
     fig, axes = plt.subplots(nrows, ncols,
                              figsize=(figsize_per_panel[0] * ncols,
                                       figsize_per_panel[1] * nrows),
                              sharey=True)
     flat = axes.flatten() if hasattr(axes, 'flatten') else [axes]
-    for i, pe in enumerate(p_edges):
-        plot_recovery_vs_mu(df, p_edge=pe, metric=metric, ax=flat[i])
+    for i, fv in enumerate(facet_values):
+        sub = df[df[facet_col] == fv]
+        plot_recovery_vs_mu(sub, metric=metric, ax=flat[i],
+                            title=f'${label} = {fv}$')
         if i != show_legend_in:
             leg = flat[i].get_legend()
             if leg is not None:
                 leg.remove()
-    # hide unused panels
-    for j in range(len(p_edges), len(flat)):
+    for j in range(len(facet_values), len(flat)):
         flat[j].set_visible(False)
     flat[show_legend_in].legend(fontsize=8, loc='best')
     fig.tight_layout()
     return fig
+
+
+def plot_recovery_vs_axis(
+    df: pd.DataFrame,
+    axis_col: str,
+    mu_relative: float = 1.0,
+    metric: str = 'S_precision',
+    ax: Axes | None = None,
+) -> Axes:
+    """Single-panel: metric vs axis_col (e.g. 'n', 'p', 'k_star') at fixed mu_relative.
+
+    One line per q_source, mean across seeds with SEM band. The vanilla curve
+    (q-source-agnostic baseline at mu=0) is plotted separately in light gray.
+    """
+    if ax is None:
+        _, ax = plt.subplots(figsize=(7, 5))
+    soft = _filter_soft(df)
+    if soft.empty:
+        raise ValueError('no rows in df')
+
+    mu_vals = sorted(soft['mu_relative'].unique())
+    mu_pick = min([m for m in mu_vals if m > 0],
+                  key=lambda v: abs(v - mu_relative), default=mu_relative)
+
+    vanilla = soft[soft['mu_relative'] == 0.0].groupby(axis_col)[metric].agg(['mean', 'sem']).reset_index()
+    ax.plot(vanilla[axis_col], vanilla['mean'], color='lightgray', marker='s',
+            markersize=4, label=f'vanilla (μ=0)', zorder=0)
+    ax.fill_between(vanilla[axis_col],
+                    vanilla['mean'] - vanilla['sem'].fillna(0),
+                    vanilla['mean'] + vanilla['sem'].fillna(0),
+                    color='lightgray', alpha=0.3, zorder=0)
+
+    at_mu = soft[soft['mu_relative'] == mu_pick]
+    sources_present = [s for s in SOURCE_ORDER if s in at_mu['q_source'].unique()]
+    for src in sources_present:
+        g = at_mu[at_mu['q_source'] == src].groupby(axis_col)[metric].agg(['mean', 'sem']).reset_index()
+        if g.empty:
+            continue
+        color = SOURCE_COLORS[src]
+        ls = SOURCE_LINESTYLES[src]
+        ax.plot(g[axis_col], g['mean'], color=color, linestyle=ls,
+                marker='o', markersize=4, label=SOURCE_LABELS[src])
+        ax.fill_between(g[axis_col],
+                        g['mean'] - g['sem'].fillna(0),
+                        g['mean'] + g['sem'].fillna(0),
+                        color=color, alpha=0.15)
+
+    label = FACET_LABELS.get(axis_col, axis_col)
+    ax.set_xlabel(f'${label}$')
+    ax.set_ylabel(metric.replace('_', ' '))
+    ax.set_ylim(0, 1)
+    ax.set_title(f'${label}$ sweep ($\\mu_{{\\mathrm{{rel}}}}={mu_pick:.2f}$)', fontsize=10)
+    ax.grid(True, alpha=0.3)
+    ax.legend(fontsize=8, loc='best')
+    return ax
 
 
 def plot_soft_vs_hard(
@@ -203,3 +274,36 @@ def plot_soft_vs_hard(
     ax.grid(True, alpha=0.3)
     ax.legend(fontsize=8, loc='best')
     return ax
+
+
+def plot_soft_vs_hard_facet(
+    df: pd.DataFrame,
+    q_sources: list[str] = ('pc', 'ges', 'bootstrap_l1'),
+    metric: str = 'S_precision',
+    mu_relative: float = 1.0,
+    ncols: int = 3,
+    figsize_per_panel: tuple[float, float] = (5.0, 4.0),
+):
+    """Multi-panel soft vs hard, one panel per q_source.
+
+    Sources without hard-threshold rows in df are skipped silently. Returns the
+    Figure. Use this for the §6.4 comparison across all causal/predictive q's.
+    """
+    available = [s for s in q_sources
+                 if df['q_source'].str.startswith(f'{s}_hard_t').any()]
+    if not available:
+        raise ValueError('no hard-threshold rows for any of: '
+                         f'{q_sources}')
+    nrows = (len(available) + ncols - 1) // ncols
+    fig, axes = plt.subplots(nrows, ncols,
+                             figsize=(figsize_per_panel[0] * ncols,
+                                      figsize_per_panel[1] * nrows),
+                             sharey=True)
+    flat = axes.flatten() if hasattr(axes, 'flatten') else [axes]
+    for i, src in enumerate(available):
+        plot_soft_vs_hard(df, q_source=src, metric=metric,
+                          mu_relative=mu_relative, ax=flat[i])
+    for j in range(len(available), len(flat)):
+        flat[j].set_visible(False)
+    fig.tight_layout()
+    return fig
