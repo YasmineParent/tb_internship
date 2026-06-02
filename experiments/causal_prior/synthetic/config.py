@@ -6,10 +6,11 @@ DEFAULTS. The default value is included in every sweep so it acts as a
 reference point in cross-sweep plots.
 
 The 'p_edge' sweep produces the headline figures (selectivity-driven
-recovery as a function of confounding); the other three are robustness
-slices defending the anchor cell against op-point cherry-pick concerns.
-CLI overrides (--p, --n, --k-star in stability_selection.py) allow
-shooting at alternate op-points without touching DEFAULTS.
+recovery as a function of confounding); 'n' is the sample-efficiency
+panel; 'p', 'k_star', and 'noise_scale' are robustness slices defending
+the anchor cell against op-point cherry-pick concerns. CLI overrides
+(--p, --n, --k-star in stability_selection.py) allow shooting at
+alternate op-points without touching DEFAULTS.
 """
 
 from __future__ import annotations
@@ -60,8 +61,14 @@ class Cell:
 
     @property
     def filename(self) -> str:
-        return (f'seed{self.seed}_p{self.p}_n{self.n}_k{self.k_star}'
-                f'_pedge{self.p_edge}_noise{self.noise_scale}.npz')
+        # only suffix noise when it differs from the default, so cells generated
+        # before the noise_scale sweep keep their original names (existing cache
+        # and recovery CSVs stay valid; no orphan/duplicate files in the dir).
+        base = (f'seed{self.seed}_p{self.p}_n{self.n}_k{self.k_star}'
+                f'_pedge{self.p_edge}')
+        if self.noise_scale != DEFAULTS['noise_scale']:
+            base += f'_noise{self.noise_scale}'
+        return f'{base}.npz'
 
 
 def build_cells(scope: str, n_seeds: int | None = None,
