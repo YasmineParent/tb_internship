@@ -10,7 +10,7 @@ from rpy2.rinterface_lib.embedded import RRuntimeError
 
 import rpy2.robjects as ro
 
-import src_tb  # ensures external/cmm is on sys.path
+import src  # noqa: F401  extends src.__path__ with external/cmm/src
 from src.exp.algos import CD
 
 

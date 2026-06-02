@@ -12,8 +12,8 @@ sys.path.insert(0, str(REPO_ROOT))
 import numpy as np
 import pandas as pd
 
-from src_tb.causal_discovery.cmm_utils import refit_with_stable_graph
-from src_tb.data.load_tb import load_tb_data, prevalence_filter, lineage_dummies
+from src.causal_discovery.cmm_utils import refit_with_stable_graph
+from src.data.load_tb import load_tb_data, prevalence_filter, lineage_dummies
 
 
 DATA_PATH = REPO_ROOT / 'data' / 'real' / 'processed' / 'tb_pheno_geno_clean.csv'

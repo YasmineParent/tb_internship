@@ -25,8 +25,8 @@ warnings.filterwarnings('ignore')
 
 import numpy as np
 import pandas as pd
-from src_tb.data.load_tb import load_tb_data, prevalence_filter, lineage_dummies, type_beyond_MDR
-from src_tb.causal_discovery.cmm_utils import subsample_cmm, edge_stability, per_node_k_summary
+from src.data.load_tb import load_tb_data, prevalence_filter, lineage_dummies, type_beyond_MDR
+from src.causal_discovery.cmm_utils import subsample_cmm, edge_stability, per_node_k_summary
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DATA_PATH = REPO_ROOT / 'data' / 'real' / 'processed' / 'tb_pheno_geno_clean.csv'

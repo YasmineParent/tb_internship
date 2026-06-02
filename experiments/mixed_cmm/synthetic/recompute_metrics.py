@@ -18,8 +18,8 @@ warnings.filterwarnings('ignore')
 import pandas as pd
 
 from experiments.mixed_cmm.synthetic.config import DEFAULTS, GRAPH_METRICS
-from src_tb.data.synthetic import SyntheticData
-from src_tb.causal_discovery.evaluation import parse_edges, score_recovered
+from src.data.synthetic import SyntheticData
+from src.causal_discovery.evaluation import parse_edges, score_recovered
 
 CSV_METRIC_KEYS = list(GRAPH_METRICS) + [
     f'{stat}_{kind}'

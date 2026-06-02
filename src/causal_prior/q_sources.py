@@ -3,7 +3,7 @@
 These are analysis-time q sources used as soft-prior inputs to the modified
 FasterRisk, constructed from ground-truth knowledge of S_star / confounded
 (only available in synthetic settings). Real discovery sources (PC, GES,
-bootstrap-L1) live in src_tb/causal_discovery/priors.py.
+bootstrap-L1) live in src/causal_prior/priors.py.
 """
 from __future__ import annotations
 

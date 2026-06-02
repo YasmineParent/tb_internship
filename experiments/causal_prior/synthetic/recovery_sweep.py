@@ -40,10 +40,10 @@ from joblib import Parallel, delayed
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
-from src_tb.support_recovery.q_sources import (  # noqa: E402
+from src.causal_prior.q_sources import (  # noqa: E402
     oracle_q, uniform_q, adversarial_q,
 )
-from src_tb.support_recovery.metrics import support_recovery_metrics  # noqa: E402
+from src.causal_prior.metrics import support_recovery_metrics  # noqa: E402
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
