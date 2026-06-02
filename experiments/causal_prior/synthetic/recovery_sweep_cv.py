@@ -46,7 +46,7 @@ N_SPLITS = 5
 SOURCES = ('oracle', 'uniform', 'adversarial', 'pc', 'ges', 'bootstrap_l1')
 
 CSV_FIELDS = [
-    'seed', 'p', 'n', 'k_star', 'p_edge', 'mu_scale',
+    'seed', 'p', 'n', 'k_star', 'p_edge', 'noise_scale', 'mu_scale',
     'q_source', 'K_multiplier', 'K',
     'mu_star', 'mu_star_relative', 'log_loss_star', 'auc_star',
     'support', 'k_actual',
@@ -94,6 +94,7 @@ def process_cell(cell_path: Path, out_path: Path, n_mu_log: int,
     base_id = {
         'seed': int(cell['seed']), 'p': p, 'n': int(cell['n']),
         'k_star': k_star, 'p_edge': float(cell['p_edge']),
+        'noise_scale': float(cell['noise_scale']) if 'noise_scale' in cell.files else 1.0,
         'mu_scale': mu_scale,
     }
     for K_mult in k_multipliers:

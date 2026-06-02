@@ -60,7 +60,7 @@ def process_cell(cell: Cell, B: int, cache_dir: Path, force: bool,
     t_total = time.time()
     data = LinGaussSyntheticData(
         p=cell.p, n_samples=cell.n, k_star=cell.k_star,
-        p_edge=cell.p_edge, seed=cell.seed,
+        p_edge=cell.p_edge, noise_scale=cell.noise_scale, seed=cell.seed,
     )
     mu_scale = compute_mu_scale(data.X, data.y)
 
@@ -88,6 +88,7 @@ def process_cell(cell: Cell, B: int, cache_dir: Path, force: bool,
         p=cell.p,
         n=cell.n,
         k_star=cell.k_star,
+        noise_scale=cell.noise_scale,
         X=data.X,
         y=data.y,
         y_continuous=data.y_continuous,

@@ -17,28 +17,33 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 
-DEFAULTS = dict(p=30, n=300, k_star=5, p_edge=0.2)
+DEFAULTS = dict(p=30, n=300, k_star=5, p_edge=0.2, noise_scale=1.0)
 
 SWEEPS: dict[str, list] = {
-    'p_edge':  [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7],  # headline; 0.7 added for extreme-confounding tail
-    'n':       [75, 100, 150, 200, 300, 500, 1000],  # sample-efficiency; 75/100 probe the data-starved regime
-    'p':       [10, 15, 20, 30, 50],                  # feature-count robustness; 50 stresses GES
-    'k_star':  [3, 5, 7],                             # true-sparsity robustness
+    'p_edge':      [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7],  # headline; 0.7 added for extreme-confounding tail
+    'n':           [75, 100, 150, 200, 300, 500, 1000],  # sample-efficiency; 75/100 probe the data-starved regime
+    'p':           [10, 15, 20, 30, 50],                 # feature-count robustness; 50 stresses GES
+    'k_star':      [3, 5, 7],                            # true-sparsity robustness
+    'noise_scale': [0.5, 1.0, 2.0],                       # SNR sweep; prior should help more at high noise
 }
 
-# per-sweep seed budget; p_edge is the headline so more seeds for tight bands
+# per-sweep seed budget; p_edge is the headline figure so it gets the most.
+# n is the sample-efficiency panel (also load-bearing); p, k_star, and
+# noise_scale are robustness slices, less central but still need readable bands.
 SEED_COUNTS: dict[str, int] = {
-    'p_edge': 20,
-    'n':      10,
-    'p':      5,
-    'k_star': 5,
+    'p_edge':      20,
+    'n':           10,
+    'p':           10,
+    'k_star':      10,
+    'noise_scale': 10,
 }
 
 PARAM_LABELS = {
-    'p_edge':  'DAG edge density',
-    'n':       'sample size',
-    'p':       '#features',
-    'k_star':  '|S*| (true causes)',
+    'p_edge':      'DAG edge density',
+    'n':           'sample size',
+    'p':           '#features',
+    'k_star':      '|S*| (true causes)',
+    'noise_scale': r'noise scale $\sigma$',
 }
 
 DEFAULT_N_SEEDS = 5  # used only when CLI --n-seeds overrides SEED_COUNTS uniformly
@@ -50,12 +55,13 @@ class Cell:
     n: int
     k_star: int
     p_edge: float
+    noise_scale: float
     seed: int
 
     @property
     def filename(self) -> str:
         return (f'seed{self.seed}_p{self.p}_n{self.n}_k{self.k_star}'
-                f'_pedge{self.p_edge}.npz')
+                f'_pedge{self.p_edge}_noise{self.noise_scale}.npz')
 
 
 def build_cells(scope: str, n_seeds: int | None = None,

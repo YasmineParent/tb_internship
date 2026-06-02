@@ -56,7 +56,7 @@ HARD_THRESHOLDS = (0.3, 0.5, 0.7)  # MB-standard thresholds for the §6.4 hard-p
 HARD_BASELINE_SOURCES = ('pc', 'ges', 'bootstrap_l1')  # only causal/predictive sources, not the synthetic q's
 
 CSV_FIELDS = [
-    'seed', 'p', 'n', 'k_star', 'p_edge', 'mu_scale',
+    'seed', 'p', 'n', 'k_star', 'p_edge', 'noise_scale', 'mu_scale',
     'q_source', 'mu', 'mu_relative', 'K',
     'support', 'k_actual',
     'S_recall', 'S_precision', 'C_inclusion',
@@ -147,6 +147,7 @@ def process_cell(cell_path: Path, out_path: Path, n_mu_log: int) -> str:
         'n': int(cell['n']),
         'k_star': k_star,
         'p_edge': float(cell['p_edge']),
+        'noise_scale': float(cell['noise_scale']) if 'noise_scale' in cell.files else 1.0,
         'mu_scale': mu_scale,
     }
     for q_source, q in sources.items():
