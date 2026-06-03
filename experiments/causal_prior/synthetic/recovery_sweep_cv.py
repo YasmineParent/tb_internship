@@ -1,12 +1,14 @@
-"""§6.1 recovery sweep with CV-on-AUC mu selection.
+"""§6.1 recovery sweep with CV-on-log_loss mu selection.
 
-For each Phase A cell and each q source, pick mu by 5-fold CV-on-AUC across
-the same log-spaced mu grid used by recovery_sweep.py, then refit on full
-data at the chosen mu_star. Record the resulting support and S* recovery
-metrics. This is the principled headline path (mu chosen by a procedure a
-practitioner could run); the existing recovery_sweep.py covers the
-oracle-mu baseline for the gap figure (post-hoc argmax over its full mu x
-metric grid).
+For each Phase A cell and each q source, pick mu by 5-fold CV-on-log_loss
+across the same log-spaced mu grid used by recovery_sweep.py, then refit
+on full data at the chosen mu_star. Record the resulting support and S*
+recovery metrics. This is the principled headline path (mu chosen by a
+procedure a practitioner could run); the existing recovery_sweep.py
+covers the oracle-mu baseline for the gap figure (post-hoc argmax over
+its full mu x metric grid). AUC is also recorded for diagnostic use but
+is not the selection criterion (AUC is essentially mu-invariant for FR's
+integer betas; log_loss has real but small sensitivity to mu).
 
 K-ablation: pass --K-multipliers '1.0,1.5,2.0,3.0' to evaluate the prior at
 several cardinality budgets per cell (one row per K_multiplier per cell per

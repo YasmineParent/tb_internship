@@ -34,6 +34,12 @@ def load_recovery_csvs(out_dir: Path | str) -> pd.DataFrame:
         raise FileNotFoundError(f'no recovery CSVs in {out_dir}')
     df = pd.concat([pd.read_csv(p) for p in paths], ignore_index=True)
     df['support'] = df['support'].apply(json.loads)
+    # legacy CSVs (pre-noise_scale commit) lack the column; they were all run at
+    # the default noise level, so backfill rather than re-run them.
+    if 'noise_scale' in df.columns:
+        df['noise_scale'] = df['noise_scale'].fillna(1.0)
+    else:
+        df['noise_scale'] = 1.0
     return df
 
 

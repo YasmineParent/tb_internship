@@ -16,6 +16,12 @@ required-markers = [
     "platform_machine == 'x86_64' and sys_platform == 'linux'",
 ]
 
+[manifest]
+
+[[manifest.dependency-metadata]]
+name = "fasterrisk"
+version = "0.1.10"
+
 [[package]]
 name = "annotated-doc"
 version = "0.0.4"
@@ -641,6 +647,11 @@ sdist = { url = "https://files.pythonhosted.org/packages/cc/28/c14e053b6762b1044
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c1/ea/53f2148663b321f21b5a606bd5f191517cf40b7072c0497d3c92c4a13b1e/executing-2.2.1-py2.py3-none-any.whl", hash = "sha256:760643d3452b4d777d295bb167ccc74c64a81df23fb5e08eff250c425a4b2017", size = 28317, upload-time = "2025-09-01T09:48:08.5Z" },
 ]
+
+[[package]]
+name = "fasterrisk"
+version = "0.1.10"
+source = { editable = "external/fasterrisk" }
 
 [[package]]
 name = "fastjsonschema"
@@ -2850,6 +2861,7 @@ dependencies = [
     { name = "causal-learn" },
     { name = "causaldag" },
     { name = "cdt" },
+    { name = "fasterrisk" },
     { name = "gadjid" },
     { name = "ipykernel" },
     { name = "joblib" },
@@ -2876,6 +2888,7 @@ requires-dist = [
     { name = "causal-learn", specifier = ">=0.1.4.5" },
     { name = "causaldag", specifier = ">=0.1a163" },
     { name = "cdt", specifier = ">=0.6.0" },
+    { name = "fasterrisk", editable = "external/fasterrisk" },
     { name = "gadjid", specifier = ">=0.1.0" },
     { name = "ipykernel", specifier = ">=7.2.0" },
     { name = "joblib", specifier = ">=1.5.3" },
