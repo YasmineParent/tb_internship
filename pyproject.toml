@@ -25,6 +25,7 @@ dependencies = [
     "seaborn>=0.13.2",
     "tabulate>=0.10.0",
     "torch>=2.0.0",
+    "fasterrisk",
 ]
 
 [tool.uv]
@@ -32,3 +33,14 @@ required-environments = [
     "sys_platform == 'darwin' and platform_machine == 'x86_64'",
     "sys_platform == 'linux' and platform_machine == 'x86_64'"
 ]
+
+[tool.uv.sources]
+fasterrisk = { path = "external/fasterrisk", editable = true }
+
+# the fork's pyproject pins pandas==1.5.2, numpy<2, etc. which conflict with this
+# project's pins; override its metadata so uv skips those (we declare what
+# fasterrisk needs at runtime above).
+[[tool.uv.dependency-metadata]]
+name = "fasterrisk"
+version = "0.1.10"
+requires-dist = []
