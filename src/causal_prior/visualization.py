@@ -222,6 +222,52 @@ def plot_recovery_vs_axis(
     return ax
 
 
+def plot_recovery_cv_vs_axis(
+    cv: pd.DataFrame,
+    axis_col: str,
+    metric: str = 'S_precision',
+    K_multiplier: float | None = None,
+    ax: Axes | None = None,
+) -> Axes:
+    """metric at CV-picked mu_hat vs axis_col, one line per q_source.
+
+    Twin of plot_recovery_vs_axis but reads recovery_sweep_cv CSVs (one row
+    per (cell, K, q_source) with the metric already at mu_star). No mu
+    grid-snap; each cell uses whatever mu_hat its CV procedure picked.
+    """
+    if ax is None:
+        _, ax = plt.subplots(figsize=(7, 5))
+    df = cv[~cv['q_source'].astype(str).str.contains('_hard_', na=False)]
+    if K_multiplier is not None:
+        df = df[df['K_multiplier'] == K_multiplier]
+    if df.empty:
+        raise ValueError('no rows after filter')
+
+    sources_present = [s for s in SOURCE_ORDER if s in df['q_source'].unique()]
+    for src in sources_present:
+        g = df[df['q_source'] == src].groupby(axis_col)[metric].agg(['mean', 'sem']).reset_index()
+        color = SOURCE_COLORS[src]
+        ls = SOURCE_LINESTYLES[src]
+        ax.plot(g[axis_col], g['mean'], color=color, linestyle=ls,
+                marker='o', markersize=4, label=SOURCE_LABELS[src])
+        ax.fill_between(g[axis_col],
+                        g['mean'] - g['sem'].fillna(0),
+                        g['mean'] + g['sem'].fillna(0),
+                        color=color, alpha=0.15)
+
+    label = FACET_LABELS.get(axis_col, axis_col)
+    ax.set_xlabel(f'${label}$')
+    ax.set_ylabel(metric.replace('_', ' '))
+    ax.set_ylim(0, 1)
+    title = f'${label}$ sweep at CV-picked $\\hat{{\\mu}}$'
+    if K_multiplier is not None:
+        title += f' ($K = {K_multiplier} \\cdot k^*$)'
+    ax.set_title(title, fontsize=10)
+    ax.grid(True, alpha=0.3)
+    ax.legend(fontsize=8, loc='best')
+    return ax
+
+
 def plot_mu_star_vs_axis(
     cv: pd.DataFrame,
     axis_col: str,
