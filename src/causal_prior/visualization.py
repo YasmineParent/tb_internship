@@ -55,10 +55,11 @@ def _filter_soft(df: pd.DataFrame) -> pd.DataFrame:
 
 
 FACET_LABELS: dict[str, str] = {
-    'p_edge': r'p_{\mathrm{edge}}',
-    'n':      'n',
-    'p':      'p',
-    'k_star': r'k^{*}',
+    'p_edge':       r'p_{\mathrm{edge}}',
+    'n':            'n',
+    'p':            'p',
+    'k_star':       r'k^{*}',
+    'K_multiplier': r'K / k^{*}',
 }
 
 
