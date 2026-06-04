@@ -33,13 +33,34 @@ from sklearn.model_selection import StratifiedKFold
 
 @dataclass
 class CVResult:
-    mu_star: float                # mu value selected by CV (argmin of log_loss)
+    mu_star: float                # mu value selected by CV
     auc_star: float               # mean held-out AUC at mu_star
-    log_loss_star: float          # mean held-out log loss at mu_star (the selection criterion)
+    log_loss_star: float          # mean held-out log loss at mu_star
+    stability_star: float         # mean pairwise Jaccard at mu_star
     aucs_per_mu: np.ndarray       # mean held-out AUC over the mu grid (shape: (n_mu,))
     log_losses_per_mu: np.ndarray # mean held-out log loss over the mu grid (shape: (n_mu,))
+    stabilities_per_mu: np.ndarray # mean pairwise Jaccard over the mu grid (shape: (n_mu,))
     support: list[int]            # nonzero coefficient indices after refit at mu_star
     betas: np.ndarray             # integer beta vector after refit at mu_star (shape: (p,))
+
+
+def _mean_pairwise_jaccard(supports: list[list[int]]) -> float:
+    """Average Jaccard similarity across all fold pairs; supports with no
+    overlap and no union (both empty) treated as Jaccard = 1.0. With <2
+    folds present, returns 0.0.
+    """
+    if len(supports) < 2:
+        return 0.0
+    sets = [set(s) for s in supports]
+    pairs = []
+    for i in range(len(sets)):
+        for j in range(i + 1, len(sets)):
+            union = sets[i] | sets[j]
+            if not union:
+                pairs.append(1.0)
+                continue
+            pairs.append(len(sets[i] & sets[j]) / len(union))
+    return float(np.mean(pairs)) if pairs else 0.0
 
 
 def _import_fasterrisk():
@@ -53,16 +74,25 @@ def _import_fasterrisk():
 def cv_pick_mu(X: np.ndarray, y: np.ndarray, K: int,
                mu_grid: np.ndarray, q: np.ndarray | None,
                n_splits: int = 5,
+               criterion: str = 'log_loss',
                rng: np.random.Generator | None = None) -> CVResult:
-    """Pick mu by k-fold CV minimising held-out logistic loss, then refit.
+    """Pick mu by k-fold CV under the chosen criterion, then refit on full data.
 
-    y is FasterRisk's signed convention: {-1, +1}. sklearn's log_loss /
-    roc_auc_score want 0/1, so we map y -> (y > 0). StratifiedKFold preserves
-    class balance per fold; the rng controls the shuffle seed for
-    reproducibility. Both log_loss and AUC are computed per (mu, fold) and
-    averaged across folds; mu_star = argmin mean log_loss. AUC at mu_star is
-    reported alongside for context but does NOT drive selection.
+    criterion = 'log_loss' (default): mu_star = argmin mean held-out log loss.
+    criterion = 'stability':          mu_star = argmax mean pairwise Jaccard
+                                      of per-fold supports.
+
+    log_loss is the standard practitioner criterion (predictive performance
+    on held-out data). stability rewards mu values where the prior's choice
+    of support is robust to data perturbation, which can favor causally
+    consistent over spurious-but-predictive features.
+
+    All three diagnostics (log_loss, AUC, stability per mu) are always
+    computed and recorded; only the selection criterion differs. AUC is
+    typically mu-flat for FR's integer betas and is reported for reference.
     """
+    if criterion not in ('log_loss', 'stability'):
+        raise ValueError(f"criterion must be 'log_loss' or 'stability', got {criterion!r}")
     FasterRisk = _import_fasterrisk()
     if rng is None:
         rng = np.random.default_rng()
@@ -73,12 +103,17 @@ def cv_pick_mu(X: np.ndarray, y: np.ndarray, K: int,
 
     aucs = np.full((len(mu_grid), n_splits), np.nan)
     losses = np.full((len(mu_grid), n_splits), np.nan)
+    supports_per_mu: list[list[list[int]]] = [[] for _ in range(len(mu_grid))]
     for s_idx, (tr, te) in enumerate(skf.split(X, y_true_binary)):
         single_class = y_true_binary[te].sum() in (0, len(te))
         for m_idx, mu in enumerate(mu_grid):
             fr = FasterRisk(k=K, mu=float(mu),
                             freq=q.astype(float) if q is not None else None)
             fr.fit(X[tr], y[tr])
+            betas_fold = fr.betas_[0]
+            supports_per_mu[m_idx].append(
+                sorted(int(j) for j in np.where(np.abs(betas_fold) > 0)[0])
+            )
             y_prob = np.clip(fr.predict_proba(X[te]), 1e-7, 1 - 1e-7)
             losses[m_idx, s_idx] = log_loss(y_true_binary[te], y_prob,
                                             labels=[0, 1])
@@ -90,7 +125,12 @@ def cv_pick_mu(X: np.ndarray, y: np.ndarray, K: int,
 
     mean_losses = np.nanmean(losses, axis=1)
     mean_aucs = np.nanmean(aucs, axis=1)
-    mu_star_idx = int(np.nanargmin(mean_losses))
+    stabilities = np.array([_mean_pairwise_jaccard(s) for s in supports_per_mu])
+
+    if criterion == 'log_loss':
+        mu_star_idx = int(np.nanargmin(mean_losses))
+    else:
+        mu_star_idx = int(np.nanargmax(stabilities))
     mu_star = float(mu_grid[mu_star_idx])
 
     # refit on full data at mu_star
@@ -104,7 +144,9 @@ def cv_pick_mu(X: np.ndarray, y: np.ndarray, K: int,
         mu_star=mu_star,
         auc_star=float(mean_aucs[mu_star_idx]),
         log_loss_star=float(mean_losses[mu_star_idx]),
+        stability_star=float(stabilities[mu_star_idx]),
         aucs_per_mu=mean_aucs,
         log_losses_per_mu=mean_losses,
+        stabilities_per_mu=stabilities,
         support=support, betas=np.asarray(betas, dtype=int),
     )

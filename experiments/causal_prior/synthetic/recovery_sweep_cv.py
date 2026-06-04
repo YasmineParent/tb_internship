@@ -49,8 +49,8 @@ SOURCES = ('oracle', 'uniform', 'adversarial', 'pc', 'ges', 'bootstrap_l1')
 
 CSV_FIELDS = [
     'seed', 'p', 'n', 'k_star', 'p_edge', 'noise_scale', 'mu_scale',
-    'q_source', 'K_multiplier', 'K',
-    'mu_star', 'mu_star_relative', 'log_loss_star', 'auc_star',
+    'q_source', 'K_multiplier', 'K', 'criterion',
+    'mu_star', 'mu_star_relative', 'log_loss_star', 'auc_star', 'stability_star',
     'support', 'k_actual',
     'S_recall', 'S_precision', 'C_inclusion',
     'fit_seconds',
@@ -72,7 +72,8 @@ def build_q_sources(cell, p: int, S_star: list[int],
 
 
 def process_cell(cell_path: Path, out_path: Path, n_mu_log: int,
-                 k_multipliers: tuple[float, ...], n_splits: int) -> str:
+                 k_multipliers: tuple[float, ...], n_splits: int,
+                 criterion: str) -> str:
     cell = np.load(cell_path, allow_pickle=False)
     p = int(cell['p'])
     k_star = int(cell['k_star'])
@@ -106,14 +107,15 @@ def process_cell(cell_path: Path, out_path: Path, n_mu_log: int,
             with warnings.catch_warnings():
                 warnings.simplefilter('ignore')
                 cv = cv_pick_mu(X, y, K=K, mu_grid=mu_grid, q=q,
-                                n_splits=n_splits, rng=rng)
+                                n_splits=n_splits, criterion=criterion, rng=rng)
             m = support_recovery_metrics(cv.support, S_set, C_set)
             mu_rel = cv.mu_star / mu_scale if mu_scale > 0 else 0.0
             rows.append({**base_id,
                 'q_source': q_source,
-                'K_multiplier': K_mult, 'K': K,
+                'K_multiplier': K_mult, 'K': K, 'criterion': criterion,
                 'mu_star': cv.mu_star, 'mu_star_relative': mu_rel,
                 'log_loss_star': cv.log_loss_star, 'auc_star': cv.auc_star,
+                'stability_star': cv.stability_star,
                 'support': json.dumps(cv.support),
                 'k_actual': m['k_actual'],
                 'S_recall': m['S_recall'], 'S_precision': m['S_precision'],
@@ -130,12 +132,13 @@ def process_cell(cell_path: Path, out_path: Path, n_mu_log: int,
 
 def _process_one_safe(cell_path: Path, out_dir: Path, force: bool,
                       n_mu_log: int, k_multipliers: tuple[float, ...],
-                      n_splits: int) -> str:
+                      n_splits: int, criterion: str) -> str:
     out_path = out_dir / (cell_path.stem + '.csv')
     if out_path.exists() and not force:
         return f'{cell_path.name}: skip (exists)'
     t = time.time()
-    summary = process_cell(cell_path, out_path, n_mu_log, k_multipliers, n_splits)
+    summary = process_cell(cell_path, out_path, n_mu_log, k_multipliers,
+                           n_splits, criterion)
     return f'{summary} in {time.time()-t:.1f}s'
 
 
@@ -156,6 +159,9 @@ def main() -> None:
     parser.add_argument('--cell-filter', type=str, default=None,
                         help='optional glob matched against cell filenames '
                              "(e.g. 'seed*_p30_n300_k5_pedge0.2.npz' for the anchor only)")
+    parser.add_argument('--criterion', choices=['log_loss', 'stability'],
+                        default='log_loss',
+                        help='CV selection criterion (default log_loss)')
     args = parser.parse_args()
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
@@ -166,11 +172,13 @@ def main() -> None:
         parser.error(f'no .npz cells matching {pattern!r} in {args.cache_dir}')
     print(f'cache={args.cache_dir}, {len(cell_paths)} cells, '
           f'K_mults={k_multipliers}, n_splits={args.n_splits}, '
+          f'criterion={args.criterion}, '
           f'n_jobs={args.n_jobs}, out={args.out_dir}', flush=True)
 
     for m in Parallel(n_jobs=args.n_jobs, return_as='generator')(
         delayed(_process_one_safe)(
-            p, args.out_dir, args.force, args.n_mu_log, k_multipliers, args.n_splits,
+            p, args.out_dir, args.force, args.n_mu_log, k_multipliers,
+            args.n_splits, args.criterion,
         )
         for p in cell_paths
     ):
