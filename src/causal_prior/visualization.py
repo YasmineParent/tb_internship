@@ -60,6 +60,7 @@ FACET_LABELS: dict[str, str] = {
     'p':            'p',
     'k_star':       r'k^{*}',
     'K_multiplier': r'K / k^{*}',
+    'noise_scale':  r'\sigma_{\mathrm{noise}}',
 }
 
 
@@ -238,15 +239,24 @@ def plot_recovery_cv_vs_axis(
     """
     if ax is None:
         _, ax = plt.subplots(figsize=(7, 5))
-    df = cv[~cv['q_source'].astype(str).str.contains('_hard_', na=False)]
+    df = _filter_soft(cv)
     if K_multiplier is not None:
         df = df[df['K_multiplier'] == K_multiplier]
+    # require an explicit choice when multiple Ks are present and K isn't the axis;
+    # otherwise the curve silently blends K values (same class of bug as noise mixing).
+    if K_multiplier is None and axis_col != 'K_multiplier':
+        ks = df['K_multiplier'].unique() if 'K_multiplier' in df.columns else []
+        if len(ks) > 1:
+            raise ValueError(f'multiple K_multiplier values {sorted(ks)} present; '
+                             f'pass K_multiplier=... to filter or set axis_col=K_multiplier')
     if df.empty:
         raise ValueError('no rows after filter')
 
     sources_present = [s for s in SOURCE_ORDER if s in df['q_source'].unique()]
     for src in sources_present:
         g = df[df['q_source'] == src].groupby(axis_col)[metric].agg(['mean', 'sem']).reset_index()
+        if g.empty:
+            continue
         color = SOURCE_COLORS[src]
         ls = SOURCE_LINESTYLES[src]
         ax.plot(g[axis_col], g['mean'], color=color, linestyle=ls,
@@ -286,9 +296,14 @@ def plot_mu_star_vs_axis(
     """
     if ax is None:
         _, ax = plt.subplots(figsize=(7, 5))
-    df = cv[~cv['q_source'].astype(str).str.contains('_hard_', na=False)]
+    df = _filter_soft(cv)
     if K_multiplier is not None:
         df = df[df['K_multiplier'] == K_multiplier]
+    if K_multiplier is None and axis_col != 'K_multiplier':
+        ks = df['K_multiplier'].unique() if 'K_multiplier' in df.columns else []
+        if len(ks) > 1:
+            raise ValueError(f'multiple K_multiplier values {sorted(ks)} present; '
+                             f'pass K_multiplier=... to filter or set axis_col=K_multiplier')
     if df.empty:
         raise ValueError('no rows after filter')
 
@@ -306,6 +321,8 @@ def plot_mu_star_vs_axis(
             mu_sem=('mu_plot', 'sem'),
             zero_frac=('is_zero', 'mean'),
         ).reset_index()
+        if g.empty:
+            continue
         color = SOURCE_COLORS[src]
         ls = SOURCE_LINESTYLES[src]
         ax.plot(g[axis_col], g['mu_mean'], color=color, linestyle=ls,
