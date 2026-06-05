@@ -44,6 +44,7 @@ from src.causal_prior.q_sources import (  # noqa: E402
     oracle_q, uniform_q, adversarial_q,
 )
 from src.causal_prior.metrics import support_recovery_metrics  # noqa: E402
+from src.causal_prior.loading import causal_partition  # noqa: E402
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -60,6 +61,7 @@ CSV_FIELDS = [
     'q_source', 'mu', 'mu_relative', 'K',
     'support', 'k_actual',
     'S_recall', 'S_precision', 'C_inclusion',
+    'causal_precision', 'correlate_inclusion',
     'fit_seconds',
 ]
 
@@ -136,6 +138,10 @@ def process_cell(cell_path: Path, out_path: Path, n_mu_log: int) -> str:
     confounded_list = sorted(int(j) for j in cell['confounded'])
     S_set = set(S_star_list)
     C_set = set(confounded_list)
+    # causal partition (all_causes = Anc(Y), correlates = non-causal subset of C)
+    # for the cause-aware metrics; regenerated deterministically from cell params.
+    part = causal_partition(int(cell['seed']), p, float(cell['p_edge']), k_star)
+    causes, correlates = part['all_causes'], part['correlates']
 
     FasterRisk = _import_fasterrisk()
     sources = build_q_sources(cell, p, S_star_list, confounded_list)
@@ -153,7 +159,8 @@ def process_cell(cell_path: Path, out_path: Path, n_mu_log: int) -> str:
     for q_source, q in sources.items():
         for mu, mu_rel in zip(mu_grid, mu_relative_grid):
             support, fit_seconds = fit_and_score(FasterRisk, X, y, K, mu, q)
-            m = support_recovery_metrics(support, S_set, C_set)
+            m = support_recovery_metrics(support, S_set, C_set,
+                                         causes=causes, correlates=correlates)
             rows.append({**base_id,
                 'q_source': q_source,
                 'mu': float(mu), 'mu_relative': float(mu_rel),
@@ -161,6 +168,8 @@ def process_cell(cell_path: Path, out_path: Path, n_mu_log: int) -> str:
                 'support': json.dumps(support), 'k_actual': m['k_actual'],
                 'S_recall': m['S_recall'], 'S_precision': m['S_precision'],
                 'C_inclusion': m['C_inclusion'],
+                'causal_precision': m['causal_precision'],
+                'correlate_inclusion': m['correlate_inclusion'],
                 'fit_seconds': fit_seconds,
             })
 
@@ -172,7 +181,8 @@ def process_cell(cell_path: Path, out_path: Path, n_mu_log: int) -> str:
             support, K_eff, fit_seconds = fit_hard_threshold(
                 FasterRisk, X, y, K, sources[q_name], t_thresh,
             )
-            m = support_recovery_metrics(support, S_set, C_set)
+            m = support_recovery_metrics(support, S_set, C_set,
+                                         causes=causes, correlates=correlates)
             rows.append({**base_id,
                 'q_source': f'{q_name}_hard_t{t_thresh}',
                 'mu': 0.0, 'mu_relative': 0.0,
@@ -180,6 +190,8 @@ def process_cell(cell_path: Path, out_path: Path, n_mu_log: int) -> str:
                 'support': json.dumps(support), 'k_actual': m['k_actual'],
                 'S_recall': m['S_recall'], 'S_precision': m['S_precision'],
                 'C_inclusion': m['C_inclusion'],
+                'causal_precision': m['causal_precision'],
+                'correlate_inclusion': m['correlate_inclusion'],
                 'fit_seconds': fit_seconds,
             })
 

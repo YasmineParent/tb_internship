@@ -21,12 +21,70 @@ from .q_sources import oracle_q, uniform_q, adversarial_q
 
 CELL_ID_COLS = ['seed', 'p', 'n', 'k_star', 'p_edge']
 
+# (seed, p, p_edge, k_star) -> {S_star, indirect_causes, all_causes, correlates}
+# memoised because the recovery CSVs share cells across mu / q_source / K rows.
+_PARTITION_CACHE: dict[tuple, dict[str, set]] = {}
 
-def load_recovery_csvs(out_dir: Path | str) -> pd.DataFrame:
+
+def causal_partition(seed: int, p: int, p_edge: float, k_star: int) -> dict[str, set]:
+    """Regenerate a cell's causal partition of feature indices.
+
+    The DAG, S*, and confounded set depend only on (seed, p, p_edge, k_star)
+    -- those RNG draws precede any use of n / noise_scale in the generator --
+    so we rebuild with n_samples=1 (cheap, no data matrix) and read the
+    ground-truth sets off the synthetic object. Memoised across calls.
+
+    Returns sets S_star, indirect_causes, all_causes (= Anc(Y)), correlates.
+    """
+    key = (int(seed), int(p), float(p_edge), int(k_star))
+    hit = _PARTITION_CACHE.get(key)
+    if hit is None:
+        from src.data.synthetic_lingauss import LinGaussSyntheticData  # deferred
+        d = LinGaussSyntheticData(p=int(p), n_samples=1, p_edge=float(p_edge),
+                                  k_star=int(k_star), seed=int(seed))
+        hit = {
+            'S_star':          set(d.S_star),
+            'indirect_causes': set(d.indirect_causes),
+            'all_causes':      set(d.all_causes),
+            'correlates':      set(d.correlates),
+        }
+        _PARTITION_CACHE[key] = hit
+    return hit
+
+
+def add_causal_metrics(df: pd.DataFrame) -> pd.DataFrame:
+    """Add cause-aware recovery columns to a recovery DataFrame (in place).
+
+    Computes, from the already-stored `support` and the regenerated per-cell
+    causal partition (no FasterRisk refit):
+        causal_precision     = |sup & all_causes| / |sup|   (any true cause counts)
+        correlate_inclusion  = |sup & correlates| / |sup|   (genuinely spurious)
+        n_indirect_causes    = |indirect_causes|            (per-cell context)
+
+    The existing S_precision (vs direct parents S* only) is left untouched so
+    the strict and cause-aware views sit side by side. Idempotent.
+    """
+    def _row(r):
+        part = causal_partition(r['seed'], r['p'], r['p_edge'], r['k_star'])
+        sup = set(r['support'])
+        k = len(sup)
+        cp = len(sup & part['all_causes']) / k if k else 0.0
+        ci = len(sup & part['correlates']) / k if k else 0.0
+        return pd.Series({'causal_precision': cp, 'correlate_inclusion': ci,
+                          'n_indirect_causes': len(part['indirect_causes'])})
+
+    df[['causal_precision', 'correlate_inclusion', 'n_indirect_causes']] = \
+        df.apply(_row, axis=1)
+    return df
+
+
+def load_recovery_csvs(out_dir: Path | str, add_causal: bool = True) -> pd.DataFrame:
     """Concatenate every recovery_sweep CSV in out_dir into one long DataFrame.
 
     The 'support' column is parsed from JSON back to list[int]; everything else
-    keeps its CSV dtype.
+    keeps its CSV dtype. When add_causal is True (default), the cause-aware
+    columns (causal_precision, correlate_inclusion) are derived from the stored
+    supports via add_causal_metrics.
     """
     out_dir = Path(out_dir)
     paths = sorted(out_dir.glob('seed*.csv'))
@@ -40,6 +98,8 @@ def load_recovery_csvs(out_dir: Path | str) -> pd.DataFrame:
         df['noise_scale'] = df['noise_scale'].fillna(1.0)
     else:
         df['noise_scale'] = 1.0
+    if add_causal:
+        df = add_causal_metrics(df)
     return df
 
 

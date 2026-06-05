@@ -36,6 +36,7 @@ from src.causal_prior.q_sources import (  # noqa: E402
     oracle_q, uniform_q, adversarial_q,
 )
 from src.causal_prior.metrics import support_recovery_metrics  # noqa: E402
+from src.causal_prior.loading import causal_partition  # noqa: E402
 from src.causal_prior.cv_mu import cv_pick_mu  # noqa: E402
 
 
@@ -53,6 +54,7 @@ CSV_FIELDS = [
     'mu_star', 'mu_star_relative', 'log_loss_star', 'auc_star', 'stability_star',
     'support', 'k_actual',
     'S_recall', 'S_precision', 'C_inclusion',
+    'causal_precision', 'correlate_inclusion',
     'fit_seconds',
 ]
 
@@ -87,6 +89,8 @@ def process_cell(cell_path: Path, out_path: Path, n_mu_log: int,
     confounded_list = sorted(int(j) for j in cell['confounded'])
     S_set = set(S_star_list)
     C_set = set(confounded_list)
+    part = causal_partition(int(cell['seed']), p, float(cell['p_edge']), k_star)
+    causes, correlates = part['all_causes'], part['correlates']
 
     sources = build_q_sources(cell, p, S_star_list, confounded_list)
 
@@ -108,7 +112,8 @@ def process_cell(cell_path: Path, out_path: Path, n_mu_log: int,
                 warnings.simplefilter('ignore')
                 cv = cv_pick_mu(X, y, K=K, mu_grid=mu_grid, q=q,
                                 n_splits=n_splits, criterion=criterion, rng=rng)
-            m = support_recovery_metrics(cv.support, S_set, C_set)
+            m = support_recovery_metrics(cv.support, S_set, C_set,
+                                         causes=causes, correlates=correlates)
             mu_rel = cv.mu_star / mu_scale if mu_scale > 0 else 0.0
             rows.append({**base_id,
                 'q_source': q_source,
@@ -120,6 +125,8 @@ def process_cell(cell_path: Path, out_path: Path, n_mu_log: int,
                 'k_actual': m['k_actual'],
                 'S_recall': m['S_recall'], 'S_precision': m['S_precision'],
                 'C_inclusion': m['C_inclusion'],
+                'causal_precision': m['causal_precision'],
+                'correlate_inclusion': m['correlate_inclusion'],
                 'fit_seconds': time.time() - t,
             })
 
