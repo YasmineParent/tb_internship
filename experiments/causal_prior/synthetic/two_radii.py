@@ -26,7 +26,12 @@ from src.data.synthetic_lingauss import LinGaussSyntheticData      # noqa: E402
 from src.causal_prior.q_sources import oracle_q                    # noqa: E402
 from src.causal_prior.cv_mu import cv_pick_mu                      # noqa: E402
 
-P, N, K_STAR, P_EDGE, SEED = 30, 300, 5, 0.3, 0
+import os
+P = 30
+N = int(os.environ.get('N', '300'))
+K_STAR = 5
+P_EDGE = float(os.environ.get('P_EDGE', '0.3'))
+SEED = 0
 K = 2 * K_STAR
 N_MU = 10
 SIGMA_PERT = 0.15      # std of the q-perturbation

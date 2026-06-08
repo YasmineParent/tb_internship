@@ -129,6 +129,35 @@ $q$; the ratio $\varepsilon^\star/\eta^\star = 1/(\mu K)$ is the exact exchange 
 The safe regime is $\mu$ just above $\mu_0$: enough margin for data-stability, before
 the $1/\mu$ prior-fragility and the transition dips dominate.
 
+## Numerical validation (exact MAP)
+
+`experiments/causal_prior/synthetic/exact_radii.py` validates Theorem 1 by brute
+force: on a small cell ($p=12$, $n=200$, $k^\star=3$, $K=3$, $p_{\mathrm{edge}}=0.5$)
+it enumerates all 298 supports with $|S|\le K$, fits the restricted
+(L2-regularized) logistic loss $\ell(S)$ once each, and computes the exact MAP, the
+gap $\Delta(q)$, the bound $\varepsilon^\star = \Delta/(2\mu K)$, and the exact
+worst-case radius $\varepsilon_{\mathrm{adv}} = \min_{S_2} \Delta_2/(\mu\,|S^\star \triangle S_2|)$.
+
+Result (oracle $q$; the runner-up shares 2 of 3 true features, so $b=1$, $K=3$):
+
+- $\varepsilon^\star \le \varepsilon_{\mathrm{adv}}$ at every $\mu$ — the bound is a
+  valid lower bound on the true invariance radius (the MAP provably cannot flip
+  below $\varepsilon^\star$).
+- $\varepsilon_{\mathrm{adv}}/\varepsilon^\star = 3.00 = K$ exactly — the slack is
+  precisely the cardinality factor introduced by the $|S|\le K$ step; the binding
+  competitor differs from $S^\star$ in 2 coordinates, so the true radius is
+  $\Delta/(2\mu)$ while the bound is $\Delta/(2\mu K)$.
+- Asymptotics match: $\varepsilon^\star \to b/(2K) = 1/6$ and
+  $\varepsilon_{\mathrm{adv}} \to b/2 = 1/2$ as $\mu$ grows ($\Delta = a + \mu b$).
+
+Not exhibited by this cell: a support transition (the loss already recovers $S^\star$,
+so the MAP $= S^\star$ for all $\mu$ and $\Delta$ grows monotonically), and the
+data-radius of Theorem 2 (its empirical signature is the support-stability gain on
+real TB §6.3 and the §6.1 CV-stability panels, where vanilla is unstable). A
+FasterRisk-based probe (`two_radii.py`) does **not** cleanly exhibit the bounds: the
+beam-search heuristic departs from the exact MAP (caveat 1), which is why exact
+enumeration is the appropriate test.
+
 ## Caveats / to verify
 
 1. Exact combinatorial MAP only; the beam-search heuristic can violate both
