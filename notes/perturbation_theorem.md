@@ -150,13 +150,27 @@ Result (oracle $q$; the runner-up shares 2 of 3 true features, so $b=1$, $K=3$):
 - Asymptotics match: $\varepsilon^\star \to b/(2K) = 1/6$ and
   $\varepsilon_{\mathrm{adv}} \to b/2 = 1/2$ as $\mu$ grows ($\Delta = a + \mu b$).
 
-Not exhibited by this cell: a support transition (the loss already recovers $S^\star$,
-so the MAP $= S^\star$ for all $\mu$ and $\Delta$ grows monotonically), and the
-data-radius of Theorem 2 (its empirical signature is the support-stability gain on
-real TB §6.3 and the §6.1 CV-stability panels, where vanilla is unstable). A
-FasterRisk-based probe (`two_radii.py`) does **not** cleanly exhibit the bounds: the
-beam-search heuristic departs from the exact MAP (caveat 1), which is why exact
-enumeration is the appropriate test.
+**Theorem 2 (data radius)** is validated on the same cell by bootstrap (20 resamples,
+recomputing $\ell(S)$ for every support; $\eta = \sup_S |\ell_b(S) - \ell(S)|$):
+
+- $\mu=0$ (vanilla): $r_\ell = \Delta/2 \approx 0.01$ (the loss optimum is a near-tie);
+  the bootstrap MAP is stable in only $65\%$ of resamples and recovers $S^\star$ in $0\%$.
+- $\mu>0$ (prior on): $r_\ell$ grows with $\mu$ ($8.8 \to 896$ as $\mu_{\mathrm{rel}}$
+  goes $0.05 \to 5$); the bootstrap MAP is stable in $100\%$ and recovers $S^\star$ in $100\%$.
+- $\mathrm{viol} = 0$ at every $\mu$: no bootstrap with $\eta < r_\ell$ ever changed the
+  MAP, so the guarantee holds.
+
+This reproduces the data-stability gain ($65\% \to 100\%$; $S^\star$-recovery
+$0\% \to 100\%$) in the exact setting — the same phenomenon as the $+0.10$ TB support
+stability and the §6.1 CV-stability panels — with $r_\ell = \Delta/2$ as the explicit
+mechanism.
+
+Not exhibited by this cell: a support *transition* (the loss already recovers
+$S^\star$, so the MAP $= S^\star$ for all $\mu>0$ and $\Delta$ grows monotonically); a
+cell with a loss-optimal support $\ne S^\star$ would show $\Delta \to 0$ at the
+crossing. A FasterRisk-based probe (`two_radii.py`) does **not** cleanly exhibit
+either bound: the beam-search heuristic departs from the exact MAP (caveat 1), which
+is why exact enumeration is the appropriate test.
 
 ## Caveats / to verify
 

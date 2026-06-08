@@ -32,6 +32,8 @@ K = 3       # = k_star, so the MAP can equal S* exactly
 C_REG = 1.0  # moderate L2: keeps l(S) non-degenerate (a stand-in for FR's box constraint;
              # unconstrained fits separate on small supports and tie l(S) at ~0)
 N_MU = 12
+N_BOOT = 20                          # bootstraps for the Theorem 2 (data radius) check
+MU_REL_THM2 = (0.0, 0.05, 0.5, 5.0)  # incl mu=0 (vanilla) to show the data-stability gain
 
 
 def restricted_losses(X, y01):
@@ -94,6 +96,36 @@ def main():
         print(f'{mrel:>8.3f} | {str(is_star):>7s} {delta:>9.3f} {eps_star:>7.3f} '
               f'{eps_adv:>8.3f} {eps_adv/eps_star:>6.2f} |   {trans}', flush=True)
         prev = Smap
+
+    # --- Theorem 2 (data radius): bootstrap MAP stability vs mu ---
+    # l_b(S) does not depend on mu, so compute each bootstrap's losses once and
+    # evaluate all mu by arithmetic. r_l = Delta/2; the theorem guarantees the
+    # MAP is preserved whenever the per-support loss shift eta < r_l.
+    boot_losses = []
+    for _ in range(N_BOOT):
+        ix = rng.integers(0, N, N)        # bootstrap resample (same n -> comparable scale)
+        _, lb = restricted_losses(X[ix], y01[ix])
+        boot_losses.append(lb)
+
+    print(f'\n=== Theorem 2 (data radius) : {N_BOOT} bootstraps ===')
+    print(f'{"mu_rel":>8s} | {"r_l=D/2":>8s} {"mean_eta":>8s} | '
+          f'{"MAP-stable":>10s} {"S*-recov":>8s} {"viol":>5s}', flush=True)
+    for mrel in MU_REL_THM2:
+        mu = mrel * mu_scale
+        idx, delta = map_and_gap(losses, Qvec, mu)
+        S0 = supports[idx]
+        r_l = delta / 2.0
+        etas, stable, srec, viol = [], 0, 0, 0
+        for lb in boot_losses:
+            eta = float(np.max(np.abs(lb - losses)))
+            Sb = supports[int(np.argmin(lb - mu * Qvec))]
+            etas.append(eta)
+            stable += (Sb == S0)
+            srec += (frozenset(d.S_star) <= Sb)
+            if eta < r_l and Sb != S0:     # theorem says this can never happen
+                viol += 1
+        print(f'{mrel:>8.3f} | {r_l:>8.2f} {np.mean(etas):>8.2f} | '
+              f'{stable/N_BOOT:>10.0%} {srec/N_BOOT:>8.0%} {viol:>5d}', flush=True)
 
 
 if __name__ == '__main__':
