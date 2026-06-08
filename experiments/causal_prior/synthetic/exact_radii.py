@@ -6,10 +6,12 @@ small problem: enumerate every support S with |S| <= K, fit the restricted
 logistic loss l(S) once (l is independent of mu and q), then everything else is
 exact arithmetic.
 
-Test of Theorem 1: the MAP support is invariant to q-perturbations with
-||q-q'||_inf < eps* = Delta(q) / (2 mu K). We verify that random perturbations
-of size eps < eps* never change the MAP (bound holds), while eps > eps* can.
-Also reports Delta(q) vs mu (expected non-monotone, dipping to 0 at transitions).
+Test of Theorem 1 (tight form): the MAP support is invariant to q-perturbations
+with ||q-q'||_inf < eps* = min_S G_q(S) / (mu |S delta S*|) (the code's eps_adv).
+This is the exact radius; the easy one-line bound eps_easy = Delta / (2 mu K)
+(the code's eps_star column) is looser by 2K / |S delta S*|, which is bound slack,
+not a property of the MAP. We verify eps_easy <= eps* at every mu, and that the
+ratio is the cardinality slack. Also reports Delta(q) vs mu (non-monotone).
 """
 from __future__ import annotations
 
@@ -71,30 +73,30 @@ def main():
 
     print(f'p={P} n={N} k*={K_STAR} p_edge={P_EDGE} K={K}  '
           f'{len(supports)} supports  S*={sorted(d.S_star)}  mu_scale={mu_scale:.1f}')
-    print(f'{"mu_rel":>8s} | {"S*<=MAP":>7s} {"Delta":>9s} {"eps*":>7s} {"eps_adv":>8s} '
-          f'{"ratio":>6s} | trans', flush=True)
+    print(f'{"mu_rel":>8s} | {"S*<=MAP":>7s} {"Delta":>9s} {"eps_easy":>8s} {"eps*":>7s} '
+          f'{"slack":>6s} | trans', flush=True)
 
     prev = None
     for mu, mrel in zip(mu_grid, mu_grid / mu_scale):
         idx, delta = map_and_gap(losses, Qvec, mu)
         Smap = supports[idx]
-        eps_star = delta / (2 * mu * K)
-        # exact worst-case (adversarial) invariance radius: smallest eps that can
-        # flip the MAP to some competitor S2 by shifting q by +/-eps on S2 \ Smap
-        # and Smap \ S2 (the symmetric difference).
+        eps_easy = delta / (2 * mu * K)   # loose one-line bound (Thm 1 remark)
+        # tight invariance radius eps* (Thm 1): smallest eps that can flip the MAP to
+        # some competitor S2 by shifting q by +/-eps on S2 \ Smap and Smap \ S2 (the
+        # symmetric difference). Equals min_S G_q(S) / (mu |S delta S*|).
         F = losses - mu * Qvec
         Fmap = F[idx]
-        eps_adv = np.inf
+        eps_star = np.inf
         for t, S2 in enumerate(supports):
             if t == idx:
                 continue
             sd = len(Smap ^ S2)
             if sd:
-                eps_adv = min(eps_adv, (F[t] - Fmap) / (mu * sd))
+                eps_star = min(eps_star, (F[t] - Fmap) / (mu * sd))
         is_star = frozenset(d.S_star) <= Smap
         trans = '*' if (prev is not None and Smap != prev) else ' '
-        print(f'{mrel:>8.3f} | {str(is_star):>7s} {delta:>9.3f} {eps_star:>7.3f} '
-              f'{eps_adv:>8.3f} {eps_adv/eps_star:>6.2f} |   {trans}', flush=True)
+        print(f'{mrel:>8.3f} | {str(is_star):>7s} {delta:>9.3f} {eps_easy:>8.3f} '
+              f'{eps_star:>7.3f} {eps_star/eps_easy:>6.2f} |   {trans}', flush=True)
         prev = Smap
 
     # --- Theorem 2 (data radius): bootstrap MAP stability vs mu ---
