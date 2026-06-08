@@ -229,10 +229,14 @@ is why exact enumeration is the appropriate test.
    to different sections. **(i) Beam-search support gap (this caveat).** SparseBeamLR
    may not select the exact-MAP support, so the beam heuristic can violate both
    radii; quantifying it is the §5 Rashomon-pool target. The matched oracle is the
-   exact *continuous* per-support optimum: brute-force enumeration of $\ell(S)$ at
-   small $p$ (`exact_radii.py`, capped at $p\approx12$, $\binom{p}{\le K}$ supports),
-   and a certified continuous per-support solver (the OKRidge-GLM class) at moderate
-   $p$ where enumeration is dead. **(ii) Rounding.** Turning the continuously-selected
+   exact *continuous* per-support optimum, by brute-force enumeration of $\ell(S)$:
+   `exact_radii.py` at tiny $p$, and `beam_gap.py` at the §6.1 anchor. With a compact
+   Newton fit ($\approx 0.55$ ms/support) the $p=30$, $K=2k^\star=10$ cell
+   ($\approx 5.3\times10^7$ supports) runs in about 10 min/seed on 48 cores, so the
+   beam gap is directly measurable at the headline regime; $p=211$ (TB) stays out of
+   reach. There is no off-the-shelf certified continuous per-support solver for
+   logistic loss (OKRidge is ridge/squared-loss only), so brute force on many cores
+   is the instrument. **(ii) Rounding.** Turning the continuously-selected
    support into integer coefficients is governed by §2.4 support-preservation
    (preserved in the safe regime; the extreme-$\mu$ failure is the §8 low-$|w_j|$
    pathology), not by this caveat. A certified-*integer* solver (RiskSlim) would
