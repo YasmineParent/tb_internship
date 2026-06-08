@@ -3,8 +3,9 @@
 Draft of the §5 robustness target. Rigorous for the **support-level MAP**: the
 combinatorial choice of $S$ with a *continuous* within-support fit $\ell(S)$
 (see Setup). This is the object FasterRisk's continuous beam stage targets before
-rounding; the beam-search gap and the rounding step are separate, acknowledged
-approximations (caveat 1). To be verified before use.
+rounding; the beam-search gap (caveat 1) and the rounding step (governed by §2.4
+support-preservation) are separate, acknowledged approximations. To be verified
+before use.
 
 ## Setup
 
@@ -17,9 +18,14 @@ $$
 be the restricted logistic-loss minimum on support $S$ (well-defined: continuous
 loss over a compact box). It does **not** depend on the prior. Note $\ell(S)$ is
 the *continuous* boxed minimum, so the "MAP" below is combinatorial over supports
-with a continuous within-support fit — not the integer-coefficient MAP. (A
-certified-integer oracle such as RiskSlim would bound a slightly different
-idealization; see caveat 1.) With prior
+with a continuous within-support fit, which is exactly the object FasterRisk
+selects the support over (SparseBeamLR is continuous; integers come later, via the
+multiplier and rounding). Conditional on §2.4 support-preservation (the multiplier
+$m$ large enough that no $|m\,w_j|$ rounds to zero), the integer scorecard inherits
+this continuously-selected support, so the theorem governs its support too. That
+condition holds in the safe regime ($\mu$ just above $\mu_0$) and can fail only at
+extreme $\mu$, the low-$|w_j|$ pathology already flagged in §8; it is that existing
+caveat, not a new one. With prior
 $q \in [0,1]^p$, strength $\mu \ge 0$, and $Q(S) = \sum_{j \in S} q_j$, the
 support-level modified objective is
 
@@ -70,9 +76,9 @@ $S \ne S^\star$ whenever $\varepsilon < \varepsilon^\star$, so $S^\star$ strictl
 minimizes $F_{q'}$. $\qquad\blacksquare$
 
 This is the **tight prior-invariance radius**: $\varepsilon^\star$ is the exact
-worst-case radius — the adversary that attains it sets $q'_j - q_j = +\varepsilon$
+worst-case radius. The adversary that attains it sets $q'_j - q_j = +\varepsilon$
 on $S \setminus S^\star$ and $-\varepsilon$ on $S^\star \setminus S$ for the binding
-competitor, attaining the bound with equality — and it equals the brute-force
+competitor, attaining the bound with equality, and it equals the brute-force
 $\varepsilon_{\mathrm{adv}}$ measured in `exact_radii.py`.
 
 **Remark (the easy bound, and where $K$ comes from).** Bounding the two endpoints
@@ -114,8 +120,8 @@ radius is already tight.
 
 Both the tight prior radius $\varepsilon^\star(\mu) = \min_{S}\tfrac{G_q(S)}{\mu|S\triangle S^\star|}$
 (Thm 1) and the data radius $\eta^\star(\mu) = \tfrac{\Delta(q)}{2}$ (Thm 2) are
-proportional to the binding gap. At a single-swap competitor — the generic nearest
-alternative, $|S \triangle S^\star| = 2$ — the ratio is
+proportional to the binding gap. At a single-swap competitor (the generic nearest
+alternative, $|S \triangle S^\star| = 2$) the ratio is
 
 $$
 \frac{\varepsilon^\star(\mu)}{\eta^\star(\mu)} \;=\; \frac{G/(2\mu)}{G/2} \;=\; \frac{1}{\mu}.
@@ -126,8 +132,8 @@ increasing $\mu$ makes the support $1/\mu$ as robust to prior error as to data e
 The earlier "$1/(\mu K)$, fragile by exactly $\mu K$" was an artifact of the easy
 bound (which replaced $|S\triangle S^\star|$ by its maximum $2K$); $K$ does not
 survive tightening, so do not claim it. For a competitor swapping $m$ features
-($|S\triangle S^\star| = 2m$) the rate is $1/(\mu m)$ — denser swaps are
-comparatively more prior-fragile — but the robust scaling is $1/\mu$. It is the
+($|S\triangle S^\star| = 2m$) the rate is $1/(\mu m)$ (denser swaps are
+comparatively more prior-fragile), but the robust scaling is $1/\mu$. It is the
 precise form of "the prior trades data-variance for $q$-variance."
 
 The **individual** radii are *not* globally monotone in $\mu$, because $\Delta(q)$ is
@@ -144,7 +150,7 @@ a global trend off it.
 Below a binding threshold $\mu_0$ the prior does not move the support:
 $\hat S(q) = \arg\min_S \ell(S) =: S_{\mathrm{loss}}$, and a $q$-perturbation is inert
 ($\varepsilon^\star$ large). $\mu_0$ is the smallest $\mu$ at which
-$\hat S(q) \ne S_{\mathrm{loss}}$ — the "separation threshold" of §5. Above $\mu_0$
+$\hat S(q) \ne S_{\mathrm{loss}}$, the "separation threshold" of §5. Above $\mu_0$
 the explicit $1/\mu$ in $\varepsilon^\star$ takes over.
 
 ## Why this matters: the two empirical phenomena are one bound
@@ -156,13 +162,13 @@ exchange rate.
 - **Adversarial collapse at large $\mu$** follows directly: $\varepsilon^\star$ carries
   an explicit $1/\mu$, and $\Delta(q)\to 0$ at every support transition, so a wrong or
   perturbed $q$ flips the MAP support ever more easily as $\mu$ grows. The degradation
-  is monotone-in-tendency, not graceful — matching the adversarial source in §6.1.
+  is monotone-in-tendency, not graceful, matching the adversarial source in §6.1.
 
 - **Stability gain (conditional, not a $\mu$-law).** An informative $q$ that gives a
   loss-reasonable support $S^\star$ a real $Q$-margin enlarges $\Delta(q)$ beyond the
   vanilla loss-gap, raising $\eta^\star$ and pinning the support against fold-to-fold
   loss perturbations (the synthetic CV Jaccard gain; the TB $+0.10$). This holds when
-  $q$ is informative and $\mu$ sits just above $\mu_0$ — which is also where log-loss
+  $q$ is informative and $\mu$ sits just above $\mu_0$, which is also where log-loss
   CV tends to place $\hat\mu$, and why it collapses $\hat\mu\to 0$ for uninformative $q$.
 
 The safe regime is $\mu$ just above $\mu_0$: enough margin for data-stability, before
@@ -181,7 +187,7 @@ the tight radius $\varepsilon^\star = \min_{S_2} G_q(S_2)/(\mu\,|S^\star \triang
 Result (oracle $q$; the runner-up shares 2 of 3 true features, so $b=1$, $K=3$,
 $|S\triangle S^\star|=2$):
 
-- $\varepsilon_{\mathrm{easy}} \le \varepsilon^\star$ at every $\mu$ — the easy
+- $\varepsilon_{\mathrm{easy}} \le \varepsilon^\star$ at every $\mu$: the easy
   bound is a valid but loose lower bound; the tight $\varepsilon^\star$ is the exact
   radius (the MAP provably cannot flip below it, and an adversary flips it exactly
   at it).
@@ -205,8 +211,8 @@ recomputing $\ell(S)$ for every support; $\eta = \sup_S |\ell_b(S) - \ell(S)|$):
   MAP, so the guarantee holds.
 
 This reproduces the data-stability gain ($65\% \to 100\%$; $S^\star$-recovery
-$0\% \to 100\%$) in the exact setting — the same phenomenon as the $+0.10$ TB support
-stability and the §6.1 CV-stability panels — with $r_\ell = \Delta/2$ as the explicit
+$0\% \to 100\%$) in the exact setting (the same phenomenon as the $+0.10$ TB support
+stability and the §6.1 CV-stability panels), with $r_\ell = \Delta/2$ as the explicit
 mechanism.
 
 Not exhibited by this cell: a support *transition* (the loss already recovers
@@ -218,24 +224,28 @@ is why exact enumeration is the appropriate test.
 
 ## Caveats / to verify
 
-1. Support-level MAP with a *continuous* within-support fit only; the beam-search
-   heuristic (and the subsequent rounding) can violate both radii. Quantifying that
-   gap is open (it is the §5 Rashomon-pool target). Brute-force enumeration caps at
-   $p\approx12$ ($\binom{p}{\le K}$ supports). The natural instrument past that
-   ceiling is a certified-integer solver (RiskSlim) as an *exact-MAP oracle*: it
-   solves the certified integer per-support optimum at moderate $p$ where
-   enumeration is dead and FasterRisk's beam gap is unbounded, so it can measure
-   the beam-search gap directly. Caveat: RiskSlim certifies the *integer* optimum,
-   while $\ell(S)$ is the *continuous* boxed minimum — a real mismatch — so report
-   any such result as "FasterRisk vs certified integer MAP", not "vs the
-   $\ell(S)$ MAP".
+1. Support-level MAP with a *continuous* within-support fit only. Two distinct
+   approximations sit between it and the deployed integer scorecard, and they belong
+   to different sections. **(i) Beam-search support gap (this caveat).** SparseBeamLR
+   may not select the exact-MAP support, so the beam heuristic can violate both
+   radii; quantifying it is the §5 Rashomon-pool target. The matched oracle is the
+   exact *continuous* per-support optimum: brute-force enumeration of $\ell(S)$ at
+   small $p$ (`exact_radii.py`, capped at $p\approx12$, $\binom{p}{\le K}$ supports),
+   and a certified continuous per-support solver (the OKRidge-GLM class) at moderate
+   $p$ where enumeration is dead. **(ii) Rounding.** Turning the continuously-selected
+   support into integer coefficients is governed by §2.4 support-preservation
+   (preserved in the safe regime; the extreme-$\mu$ failure is the §8 low-$|w_j|$
+   pathology), not by this caveat. A certified-*integer* solver (RiskSlim) would
+   answer (ii)'s end-to-end "FasterRisk vs integer MAP" question on a smaller,
+   no-multiplier class. It is **not** the oracle for the beam-search gap (i), whose
+   object is the continuous $\ell(S)$.
 2. Uniqueness of $\hat S(q)$ (i.e. $\Delta(q) > 0$) assumed; degenerate ties need
    a tie-break and a separate argument. Note $\Delta(q) \to 0$ at support
    transitions is exactly where this assumption is tightest.
 2b. The only $\mu$-monotone object is the ratio $\varepsilon^\star/\eta^\star = 1/\mu$
    (single-swap competitor); the individual radii inherit the non-monotone
    $\Delta(q)$. Do not state a global "$r_\ell\uparrow$, $r_q\downarrow$" trend, and
-   do not claim the cardinality factor $K$ in the exchange rate — it is slack from
+   do not claim the cardinality factor $K$ in the exchange rate; it is slack from
    the easy bound and does not survive the tight Theorem 1.
 3. $r_\ell$ uses a uniform bound $\eta$ over all supports; a subsample-specific
    high-probability bound on $\eta$ (Meinshausen-Bühlmann style) would turn
