@@ -10,27 +10,47 @@ def support_recovery_metrics(
     support: Iterable[int],
     S_star: Iterable[int],
     confounded: Iterable[int],
+    causes: Iterable[int] | None = None,
+    correlates: Iterable[int] | None = None,
 ) -> dict[str, float | int]:
     """Set-recovery metrics of a fitted FR support against ground-truth causes.
 
-    Returns S_recall (= |sup & S*| / |S*|), S_precision (= |sup & S*| / |sup|),
-    C_inclusion (= |sup & C| / |sup|), and k_actual. All zero on empty support;
-    S_recall NaN if S_star is empty.
+    Always returns, against the *direct parents* S* of Y:
+        S_recall    = |sup & S*| / |S*|      (NaN if S* empty)
+        S_precision = |sup & S*| / |sup|     (proximal-cause precision)
+        C_inclusion = |sup & C| / |sup|      (C = confounded set, includes
+                                              indirect causes; kept for continuity)
+        k_actual    = |sup|
+
+    If `causes` (= S* u indirect causes = Anc(Y)) and `correlates` (= the
+    genuinely non-causal subset of C) are supplied, also returns the
+    cause-aware metrics that don't penalise selecting a true *upstream* cause:
+        causal_precision     = |sup & causes| / |sup|
+        correlate_inclusion  = |sup & correlates| / |sup|
+
+    All ratios are 0.0 on empty support.
     """
     sup = set(int(j) for j in support)
     S = set(int(j) for j in S_star)
     C = set(int(j) for j in confounded)
     k_actual = len(sup)
+    out: dict[str, float | int]
     if not sup:
-        return {'S_recall': 0.0, 'S_precision': 0.0, 'C_inclusion': 0.0, 'k_actual': 0}
-    s_hit = len(sup & S)
-    c_hit = len(sup & C)
-    return {
-        'S_recall':    s_hit / len(S) if S else float('nan'),
-        'S_precision': s_hit / k_actual,
-        'C_inclusion': c_hit / k_actual,
-        'k_actual':    k_actual,
-    }
+        out = {'S_recall': 0.0, 'S_precision': 0.0, 'C_inclusion': 0.0, 'k_actual': 0}
+    else:
+        out = {
+            'S_recall':    len(sup & S) / len(S) if S else float('nan'),
+            'S_precision': len(sup & S) / k_actual,
+            'C_inclusion': len(sup & C) / k_actual,
+            'k_actual':    k_actual,
+        }
+    if causes is not None:
+        A = set(int(j) for j in causes)
+        out['causal_precision'] = (len(sup & A) / k_actual) if sup else 0.0
+    if correlates is not None:
+        R = set(int(j) for j in correlates)
+        out['correlate_inclusion'] = (len(sup & R) / k_actual) if sup else 0.0
+    return out
 
 
 def selectivity(q: np.ndarray, S_star: Iterable[int], confounded: Iterable[int]) -> float:

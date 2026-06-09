@@ -41,7 +41,7 @@ SOURCE_ORDER: list[str] = ['oracle', 'ges', 'pc', 'bootstrap_l1', 'uniform', 'ad
 
 SOURCE_LABELS: dict[str, str] = {
     'oracle':       'oracle',
-    'uniform':      'uniform',
+    'uniform':      'vanilla',
     'adversarial':  'adversarial',
     'pc':           'PC',
     'ges':          'GES',
@@ -55,10 +55,12 @@ def _filter_soft(df: pd.DataFrame) -> pd.DataFrame:
 
 
 FACET_LABELS: dict[str, str] = {
-    'p_edge': r'p_{\mathrm{edge}}',
-    'n':      'n',
-    'p':      'p',
-    'k_star': r'k^{*}',
+    'p_edge':       r'p_{\mathrm{edge}}',
+    'n':            'n',
+    'p':            'p',
+    'k_star':       r'k^{*}',
+    'K_multiplier': r'K / k^{*}',
+    'noise_scale':  r'\sigma_{\mathrm{noise}}',
 }
 
 
@@ -83,7 +85,12 @@ def plot_recovery_vs_mu(
         raise ValueError('no rows in df')
 
     g = soft.groupby(['q_source', 'mu_relative'])[metric].agg(['mean', 'sem']).reset_index()
-    if show_vanilla_anchor:
+    # uniform q is mathematically equivalent to vanilla (mu=0); skip the
+    # redundant horizontal line when uniform is in the plot, since the
+    # uniform curve already shows the vanilla level (and the overlap is a
+    # meaningful invariance, not noise).
+    uniform_in_plot = 'uniform' in g['q_source'].unique()
+    if show_vanilla_anchor and not uniform_in_plot:
         vanilla = g[g['mu_relative'] == 0.0]['mean'].mean()
         ax.axhline(vanilla, color='lightgray', linestyle='-', linewidth=1, zorder=0,
                    label=f'vanilla (μ=0): {vanilla:.2f}')
@@ -181,16 +188,19 @@ def plot_recovery_vs_axis(
     mu_pick = min([m for m in mu_vals if m > 0],
                   key=lambda v: abs(v - mu_relative), default=mu_relative)
 
-    vanilla = soft[soft['mu_relative'] == 0.0].groupby(axis_col)[metric].agg(['mean', 'sem']).reset_index()
-    ax.plot(vanilla[axis_col], vanilla['mean'], color='lightgray', marker='s',
-            markersize=4, label=f'vanilla (μ=0)', zorder=0)
-    ax.fill_between(vanilla[axis_col],
-                    vanilla['mean'] - vanilla['sem'].fillna(0),
-                    vanilla['mean'] + vanilla['sem'].fillna(0),
-                    color='lightgray', alpha=0.3, zorder=0)
-
     at_mu = soft[soft['mu_relative'] == mu_pick]
     sources_present = [s for s in SOURCE_ORDER if s in at_mu['q_source'].unique()]
+
+    # uniform q at mu>0 is mathematically equivalent to vanilla (mu=0); skip
+    # the redundant vanilla curve when uniform is present.
+    if 'uniform' not in sources_present:
+        vanilla = soft[soft['mu_relative'] == 0.0].groupby(axis_col)[metric].agg(['mean', 'sem']).reset_index()
+        ax.plot(vanilla[axis_col], vanilla['mean'], color='lightgray', marker='s',
+                markersize=4, label=f'vanilla (μ=0)', zorder=0)
+        ax.fill_between(vanilla[axis_col],
+                        vanilla['mean'] - vanilla['sem'].fillna(0),
+                        vanilla['mean'] + vanilla['sem'].fillna(0),
+                        color='lightgray', alpha=0.3, zorder=0)
     for src in sources_present:
         g = at_mu[at_mu['q_source'] == src].groupby(axis_col)[metric].agg(['mean', 'sem']).reset_index()
         if g.empty:
@@ -210,6 +220,133 @@ def plot_recovery_vs_axis(
     ax.set_ylim(0, 1)
     ax.set_title(f'${label}$ sweep ($\\mu_{{\\mathrm{{rel}}}}={mu_pick:.2f}$)', fontsize=10)
     ax.grid(True, alpha=0.3)
+    ax.legend(fontsize=8, loc='best')
+    return ax
+
+
+def plot_recovery_cv_vs_axis(
+    cv: pd.DataFrame,
+    axis_col: str,
+    metric: str = 'S_precision',
+    K_multiplier: float | None = None,
+    ax: Axes | None = None,
+) -> Axes:
+    """metric at CV-picked mu_hat vs axis_col, one line per q_source.
+
+    Twin of plot_recovery_vs_axis but reads recovery_sweep_cv CSVs (one row
+    per (cell, K, q_source) with the metric already at mu_star). No mu
+    grid-snap; each cell uses whatever mu_hat its CV procedure picked.
+    """
+    if ax is None:
+        _, ax = plt.subplots(figsize=(7, 5))
+    df = _filter_soft(cv)
+    if K_multiplier is not None:
+        df = df[df['K_multiplier'] == K_multiplier]
+    # require an explicit choice when multiple Ks are present and K isn't the axis;
+    # otherwise the curve silently blends K values (same class of bug as noise mixing).
+    if K_multiplier is None and axis_col != 'K_multiplier':
+        ks = df['K_multiplier'].unique() if 'K_multiplier' in df.columns else []
+        if len(ks) > 1:
+            raise ValueError(f'multiple K_multiplier values {sorted(ks)} present; '
+                             f'pass K_multiplier=... to filter or set axis_col=K_multiplier')
+    if df.empty:
+        raise ValueError('no rows after filter')
+
+    sources_present = [s for s in SOURCE_ORDER if s in df['q_source'].unique()]
+    for src in sources_present:
+        g = df[df['q_source'] == src].groupby(axis_col)[metric].agg(['mean', 'sem']).reset_index()
+        if g.empty:
+            continue
+        color = SOURCE_COLORS[src]
+        ls = SOURCE_LINESTYLES[src]
+        ax.plot(g[axis_col], g['mean'], color=color, linestyle=ls,
+                marker='o', markersize=4, label=SOURCE_LABELS[src])
+        ax.fill_between(g[axis_col],
+                        g['mean'] - g['sem'].fillna(0),
+                        g['mean'] + g['sem'].fillna(0),
+                        color=color, alpha=0.15)
+
+    label = FACET_LABELS.get(axis_col, axis_col)
+    ax.set_xlabel(f'${label}$')
+    ax.set_ylabel(metric.replace('_', ' '))
+    ax.set_ylim(0, 1)
+    title = f'${label}$ sweep at CV-picked $\\hat{{\\mu}}$'
+    if K_multiplier is not None:
+        title += f' ($K = {K_multiplier} \\cdot k^*$)'
+    ax.set_title(title, fontsize=10)
+    ax.grid(True, alpha=0.3)
+    ax.legend(fontsize=8, loc='best')
+    return ax
+
+
+def plot_mu_star_vs_axis(
+    cv: pd.DataFrame,
+    axis_col: str,
+    K_multiplier: float | None = None,
+    ax: Axes | None = None,
+) -> Axes:
+    """CV-picked mu_star (relative) vs axis_col, one line per q_source.
+
+    Reads CSVs produced by recovery_sweep_cv.py. The §6.4 diagnostic:
+    when mu_hat > 0, the prior is doing meaningful work; when mu_hat = 0,
+    CV collapsed to vanilla (and the precision should match the
+    no-prior baseline). Log-scaled y so the spread across orders of
+    magnitude is readable; mu_hat = 0 rows are clipped to the grid floor
+    and marked with an open marker to disambiguate.
+    """
+    if ax is None:
+        _, ax = plt.subplots(figsize=(7, 5))
+    df = _filter_soft(cv)
+    if K_multiplier is not None:
+        df = df[df['K_multiplier'] == K_multiplier]
+    if K_multiplier is None and axis_col != 'K_multiplier':
+        ks = df['K_multiplier'].unique() if 'K_multiplier' in df.columns else []
+        if len(ks) > 1:
+            raise ValueError(f'multiple K_multiplier values {sorted(ks)} present; '
+                             f'pass K_multiplier=... to filter or set axis_col=K_multiplier')
+    if df.empty:
+        raise ValueError('no rows after filter')
+
+    # log-floor; the smallest positive mu_grid point is ~1e-2, so 1e-3 is below
+    floor = 1e-3
+    df = df.copy()
+    df['mu_plot'] = df['mu_star_relative'].clip(lower=floor)
+    df['is_zero'] = df['mu_star_relative'] == 0.0
+
+    sources_present = [s for s in SOURCE_ORDER if s in df['q_source'].unique()]
+    for src in sources_present:
+        sub = df[df['q_source'] == src]
+        g = sub.groupby(axis_col).agg(
+            mu_mean=('mu_plot', 'mean'),
+            mu_sem=('mu_plot', 'sem'),
+            zero_frac=('is_zero', 'mean'),
+        ).reset_index()
+        if g.empty:
+            continue
+        color = SOURCE_COLORS[src]
+        ls = SOURCE_LINESTYLES[src]
+        ax.plot(g[axis_col], g['mu_mean'], color=color, linestyle=ls,
+                marker='o', markersize=4, label=SOURCE_LABELS[src])
+        ax.fill_between(g[axis_col],
+                        (g['mu_mean'] - g['mu_sem'].fillna(0)).clip(lower=floor),
+                        g['mu_mean'] + g['mu_sem'].fillna(0),
+                        color=color, alpha=0.15)
+        # open markers where >= 50% of seeds had mu_hat = 0 (CV collapsed to vanilla)
+        collapsed = g[g['zero_frac'] >= 0.5]
+        if not collapsed.empty:
+            ax.scatter(collapsed[axis_col], collapsed['mu_mean'],
+                       facecolors='white', edgecolors=color, s=60, zorder=5)
+
+    label = FACET_LABELS.get(axis_col, axis_col)
+    ax.set_xlabel(f'${label}$')
+    ax.set_ylabel(r'$\hat{\mu}_{\mathrm{rel}}$ (CV)')
+    ax.set_yscale('log')
+    ax.axhline(floor, color='lightgray', linestyle=':', linewidth=0.8, zorder=0)
+    title = f'CV-picked $\\mu$ vs ${label}$'
+    if K_multiplier is not None:
+        title += f' ($K = {K_multiplier} \\cdot k^*$)'
+    ax.set_title(title, fontsize=10)
+    ax.grid(True, alpha=0.3, which='both')
     ax.legend(fontsize=8, loc='best')
     return ax
 

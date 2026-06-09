@@ -101,6 +101,17 @@ class LinGaussSyntheticData:
             np.random.set_state(np_state)
             random.setstate(py_state)
 
+        # causal partition of the non-S* features, for recovery scoring (§6.1).
+        # S_star  = direct parents of Y (proximal causes).
+        # indirect_causes = ancestors of Y not in S_star (j -> ... -> s -> Y);
+        #   these are *genuine* causes, just not proximal. Scoring them as
+        #   precision errors (the old S_precision did) penalises selecting a
+        #   true upstream cause, so we expose them separately.
+        # all_causes  = S_star u indirect_causes = Anc(Y): everything with a
+        #   directed path to Y. causal_precision is measured against this set.
+        # correlates  = confounded \ indirect_causes: the genuinely non-causal
+        #   correlates (descendants of causes, common-effect structure).
+        indirect_causes = set(nx.ancestors(dag, y_node)) - set(S_star)
         self.X = X
         self.y = y_signed
         self.y_continuous = y_continuous
@@ -108,6 +119,9 @@ class LinGaussSyntheticData:
         self.y_node = y_node
         self.S_star = set(S_star)
         self.confounded = set(confounded)
+        self.indirect_causes = indirect_causes
+        self.all_causes = set(S_star) | indirect_causes
+        self.correlates = set(confounded) - indirect_causes
         self.w_star = w_star
         self.w_0_star = w_0_star
         self.A = A
