@@ -1,0 +1,8 @@
+{
+  "sweep": "p_edge",
+  "methods": [
+    "pc",
+    "ges"
+  ],
+  "n_seeds": null
+}
