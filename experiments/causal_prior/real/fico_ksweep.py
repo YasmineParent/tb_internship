@@ -59,23 +59,41 @@ def parse_args():
 
 
 def _ksweep_unit(s, tr, te, k, X_bin, y, q_bin, mu_grid, mu_scale, n_cv, seed):
-    """One (split, k) unit, both arms. Module-level and pure-Python (no R) so it
-    is picklable for joblib; large arrays are memmapped by the loky backend.
-    Vanilla refits per k; causal reselects mu per k (mu interacts with k). The cv
-    rng is keyed on the split only, so the causal arm is reproducible across the
-    sequential and parallel paths regardless of unit scheduling order."""
+    """One (split, k) unit, both arms. Records the full fitted scorecard (betas,
+    intercept, multiplier) and the causal arm's whole mu-grid cv trace, not only
+    the summary metrics. Module-level and pure-Python (no R) so it pickles for
+    joblib; large arrays are memmapped by the loky backend. Vanilla refits per k;
+    causal reselects mu per k (mu interacts with k). The cv rng is keyed on the
+    split only, so the causal arm is reproducible regardless of scheduling order."""
     FasterRisk = _import_fasterrisk()
     with warnings.catch_warnings():
         warnings.simplefilter('ignore')
-        van = fit_eval(FasterRisk, X_bin[tr], y[tr], X_bin[te], y[te], 0.0, None, k)
+        van = fit_eval(FasterRisk, X_bin[tr], y[tr], X_bin[te], y[te], 0.0, None, k,
+                       return_card=True)
         cv = cv_pick_mu(X_bin[tr], y[tr], K=k, mu_grid=mu_grid, q=q_bin,
                         n_splits=n_cv, criterion='log_loss',
                         rng=np.random.default_rng(seed + s))
         cau = fit_eval(FasterRisk, X_bin[tr], y[tr], X_bin[te], y[te],
-                       cv.mu_star, q_bin, k)
+                       cv.mu_star, q_bin, k, return_card=True)
     mu_hat_rel = cv.mu_star / mu_scale if mu_scale else 0.0
-    return [{'split': s, 'k': k, 'arm': 'vanilla', 'mu_hat_rel': 0.0, **van},
-            {'split': s, 'k': k, 'arm': 'causal', 'mu_hat_rel': mu_hat_rel, **cau}]
+    van_card, cau_card = van.pop('card'), cau.pop('card')
+    metrics = [
+        {'split': s, 'k': k, 'arm': 'vanilla', 'mu_hat_rel': 0.0, 'mu_star': 0.0,
+         'intercept': van_card['intercept'], 'multiplier': van_card['multiplier'], **van},
+        {'split': s, 'k': k, 'arm': 'causal', 'mu_hat_rel': mu_hat_rel,
+         'mu_star': float(cv.mu_star), 'intercept': cau_card['intercept'],
+         'multiplier': cau_card['multiplier'], **cau},
+    ]
+    coefs = ([{'split': s, 'k': k, 'arm': 'vanilla', 'col': j, 'coef': int(b)}
+              for j, b in enumerate(van_card['betas']) if b != 0]
+             + [{'split': s, 'k': k, 'arm': 'causal', 'col': j, 'coef': int(b)}
+                for j, b in enumerate(cau_card['betas']) if b != 0])
+    trace = [{'split': s, 'k': k, 'mu_index': i, 'cv_auc': float(a),
+              'cv_log_loss': float(ll), 'cv_stability': float(st)}
+             for i, (a, ll, st) in enumerate(zip(cv.aucs_per_mu,
+                                                 cv.log_losses_per_mu,
+                                                 cv.stabilities_per_mu))]
+    return {'metrics': metrics, 'coefs': coefs, 'trace': trace}
 
 
 def plot_curve(df_agg, qsrc, out_png):
@@ -110,7 +128,7 @@ def main():
 
     print(f'{args.qsrc.upper()} subsample-stability (B={args.b})...', flush=True)
     q_orig = discover_q(args.qsrc, X_orig, y.astype(float), args.b, args.seed)
-    X_bin, _, parent = binarize(X_orig, names, args.n_thresholds)
+    X_bin, bin_names, parent = binarize(X_orig, names, args.n_thresholds)
     q_bin = q_orig[parent]
     print(f'binarized: {X_bin.shape[1]} cols; q_bin nonzero on {int((q_bin > 0).sum())}',
           flush=True)
@@ -134,9 +152,11 @@ def main():
         from joblib import Parallel, delayed
         results = Parallel(n_jobs=args.n_jobs, backend='loky', verbose=5)(
             delayed(_ksweep_unit)(s, tr, te, k, *unit_args) for (s, tr, te, k) in jobs)
-    records = [r for unit in results for r in unit]
+    metric_rows = [r for u in results for r in u['metrics']]
+    coef_rows = [r for u in results for r in u['coefs']]
+    trace_rows = [r for u in results for r in u['trace']]
 
-    df_splits = pd.DataFrame(records)
+    df_splits = pd.DataFrame(metric_rows)
     metrics = ['auc', 'brier', 'ece', 'nfeat']
     df_agg = (df_splits.groupby(['k', 'arm'])[metrics]
               .agg(['mean', 'std']).reset_index())
@@ -145,11 +165,28 @@ def main():
     suffix = (f'fico_{args.qsrc}_ksweep' + ('_sent' if args.sentinel_nan else '')
               + ('_smoke' if args.smoke else ''))
     config = {**vars(args), 'k_grid': args.k_grid, 'data': str(DATA),
-              'n': int(n), 'p_orig': int(p_orig), 'mu_scale': mu_scale}
+              'n': int(n), 'p_orig': int(p_orig), 'mu_scale': mu_scale,
+              'mu_grid_rel': (mu_grid / (mu_scale or 1.0)).tolist()}
     output_dir = new_run_dir(REPO_ROOT / 'results' / 'causal_prior' / 'fico_ksweep' / suffix,
                              config)
+    (pd.DataFrame({'feature': names, 'q': q_orig})
+     .sort_values('q', ascending=False)
+     .to_csv(output_dir / 'q.csv', index=False))
     df_splits.to_csv(output_dir / 'splits.csv', index=False)
     df_agg.to_csv(output_dir / 'ksweep.csv', index=False)
+
+    # the fitted scorecards: one row per nonzero coefficient, per split/k/arm
+    df_coef = pd.DataFrame(coef_rows)
+    if not df_coef.empty:
+        df_coef['feature'] = df_coef['col'].map(lambda j: bin_names[j])
+        df_coef = df_coef[['split', 'k', 'arm', 'feature', 'col', 'coef']]
+    df_coef.to_csv(output_dir / 'coefficients.csv', index=False)
+
+    # the causal arm's mu-selection trace: held-out cv metrics over the mu grid
+    df_trace = pd.DataFrame(trace_rows)
+    df_trace['mu_rel'] = mu_grid[df_trace['mu_index'].to_numpy()] / (mu_scale or 1.0)
+    df_trace.to_csv(output_dir / 'cv_trace.csv', index=False)
+
     plot_curve(df_agg, args.qsrc, output_dir / 'parity_curve.png')
 
     print(df_agg[['k', 'arm', 'auc_mean', 'auc_std', 'nfeat_mean']].to_string(index=False),

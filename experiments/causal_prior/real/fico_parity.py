@@ -138,17 +138,22 @@ def ece(y01, p, n_bins=10):
     return float(e)
 
 
-def fit_eval(FasterRisk, X_tr, y_tr, X_te, y_te, mu, q, k):
+def fit_eval(FasterRisk, X_tr, y_tr, X_te, y_te, mu, q, k, return_card=False):
     fr = FasterRisk(k=k, mu=float(mu), freq=q.astype(float) if q is not None else None)
     fr.fit(X_tr, y_tr)
     p = np.clip(fr.predict_proba(X_te), 1e-7, 1 - 1e-7)
     y01 = (y_te > 0).astype(int)
-    return {
+    out = {
         'auc': roc_auc_score(y01, p),
         'brier': brier_score_loss(y01, p),
         'ece': ece(y01, p),
         'nfeat': int(np.count_nonzero(fr.betas_[0])),
     }
+    if return_card:  # full fitted scorecard for recording: betas, intercept, multiplier
+        out['card'] = {'betas': np.asarray(fr.betas_[0]).tolist(),
+                       'intercept': float(fr.beta0_[0]),
+                       'multiplier': float(fr.multipliers_[0])}
+    return out
 
 
 def discover_q(qsrc, X, y, b, seed):

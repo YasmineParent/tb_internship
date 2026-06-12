@@ -91,12 +91,16 @@ def plot_cpdag(edges, names, target_name, method, out_png):
     nx.draw_networkx_nodes(G, pos, node_color=node_colors, node_size=900, ax=ax)
     nx.draw_networkx_labels(G, pos, font_size=7, ax=ax)
     for u, v, d in G.edges(data=True):
-        nx.draw_networkx_edges(
-            G, pos, edgelist=[(u, v)], ax=ax,
-            arrows=d['directed'], arrowstyle='-|>' if d['directed'] else '-',
-            arrowsize=16, width=1.0 + 2.0 * d['weight'],
-            alpha=min(1.0, 0.25 + 0.75 * d['weight']),
-            edge_color='#2c3e50', connectionstyle='arc3,rad=0.02')
+        kw = dict(G=G, pos=pos, edgelist=[(u, v)], ax=ax,
+                  width=1.0 + 2.0 * d['weight'],
+                  alpha=min(1.0, 0.25 + 0.75 * d['weight']),
+                  edge_color='#2c3e50')
+        if d['directed']:  # arrow kwargs only apply to FancyArrowPatch edges
+            kw.update(arrows=True, arrowstyle='-|>', arrowsize=16,
+                      connectionstyle='arc3,rad=0.02')
+        else:
+            kw.update(arrows=False)
+        nx.draw_networkx_edges(**kw)
     ax.set_title(f'FICO consensus CPDAG ({method.upper()}, edge opacity = stability); '
                  f'target = {target_name}')
     ax.axis('off')
