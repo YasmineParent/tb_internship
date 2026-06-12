@@ -1,0 +1,19 @@
+{
+  "qsrc": "pc",
+  "k": 10,
+  "splits": 10,
+  "test_size": 0.3,
+  "n_cv": 5,
+  "b": 100,
+  "n_thresholds": 4,
+  "seed": 0,
+  "smoke": false,
+  "data": "/Users/yasmineparent/internship/tb_internship/data/real/raw/HelocData.csv",
+  "target": "RiskFlag",
+  "pos_label": "Bad",
+  "n": 10459,
+  "p_orig": 23,
+  "mu_scale": 229.5,
+  "mu_hat_rel_mean": 0.006747634845720768,
+  "mu_hat_nonzero_splits": 5
+}

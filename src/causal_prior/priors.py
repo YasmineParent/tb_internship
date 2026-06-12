@@ -23,6 +23,7 @@ from sklearn.preprocessing import StandardScaler
 
 _R_INITIALIZED = False
 _R_CONVERTER = None
+_BNLEARN_INITIALIZED = False
 
 
 def _init_R_pcalg() -> None:
@@ -193,3 +194,179 @@ def bootstrap_l1_q(X: np.ndarray, y: np.ndarray,
         counts += (np.abs(clf.coef_.ravel()) > 0).astype(int)
 
     return counts / B
+
+
+def _init_R_bnlearn() -> None:
+    """Lazy load of bnlearn into the R session (reuses the pcalg init for the
+    numpy<->R converter and library path). Idempotent."""
+    global _BNLEARN_INITIALIZED
+    if _BNLEARN_INITIALIZED:
+        return
+    _init_R_pcalg()
+    import rpy2.robjects as ro
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore')
+        ro.r('suppressPackageStartupMessages(library(bnlearn))')
+    _BNLEARN_INITIALIZED = True
+
+
+def _bnlearn_one_subsample(idx: np.ndarray, X: np.ndarray, y01: np.ndarray,
+                           disc_cols: list[int], method: str,
+                           max_sx: int) -> np.ndarray:
+    """One bnlearn structure-learn on a subsample; binary adjacency of features to y.
+
+    disc_cols are 1-based positions of discrete (factor) feature columns; the
+    target y is always a factor. method 'bic-cg' (hc) or 'mi-cg' (pc.stable)."""
+    import rpy2.robjects as ro
+    from rpy2.robjects.conversion import localconverter
+
+    p = X.shape[1]
+    with localconverter(_R_CONVERTER):
+        ro.globalenv['Xmat'] = X[idx]
+        ro.globalenv['yvec'] = y01[idx].astype(float)
+        ro.globalenv['disc'] = np.asarray(disc_cols, dtype=float)
+    ro.r('''
+        df <- as.data.frame(Xmat)
+        names(df) <- paste0("x", seq_len(ncol(df)) - 1L)
+        for (j in as.integer(disc)) df[[j]] <- as.factor(df[[j]])
+        df[["y"]] <- as.factor(yvec)
+    ''')
+    learn = ('hc(df, score="bic-cg")' if method == 'bic-cg'
+             else f'pc.stable(df, test="mi-cg", max.sx={max_sx}, undirected=FALSE)')
+    ro.r(f'''
+        adj_to_y <- tryCatch({{
+            g <- {learn}
+            a <- arcs(g)
+            unique(c(a[a[, 2] == "y", 1], a[a[, 1] == "y", 2]))
+        }}, error = function(e) character(0))
+    ''')
+    with localconverter(_R_CONVERTER):
+        adj = list(ro.r('adj_to_y'))
+    out = np.zeros(p, dtype=int)
+    for nm in adj:
+        if isinstance(nm, str) and nm.startswith('x') and nm[1:].isdigit():
+            out[int(nm[1:])] = 1
+    return out
+
+
+def bnlearn_stability_q(X: np.ndarray, y: np.ndarray, method: str = 'mi-cg',
+                        B: int = 100, subsample_fraction: float = 0.5,
+                        max_sx: int = 3,
+                        rng: np.random.Generator | None = None) -> np.ndarray:
+    """Subsample-stability q via bnlearn conditional-Gaussian discovery, for mixed
+    data (continuous features + categorical target/indicators). q_j = freq over B
+    subsamples that feature j is adjacent to the target.
+
+    method='mi-cg' uses pc.stable (constraint-based, CG mutual-information CI test);
+    method='bic-cg' uses hc (score-based conditional-linear-Gaussian BIC, the GES
+    analog). Binary feature columns (e.g. missingness indicators) are passed as
+    factors; the target is always a factor. max_sx caps the PC conditioning-set
+    size (mi-cg only), the analog of m.max on the Gaussian path. Runs sequentially
+    in one R session (~0.7s/subsample for bic-cg, ~6.5s for mi-cg at n~5k, p~24)."""
+    if rng is None:
+        rng = np.random.default_rng()
+    n, p = X.shape
+    y01 = (np.asarray(y) > 0).astype(int)
+    disc_cols = [j + 1 for j in range(p)
+                 if set(np.unique(X[:, j]).tolist()) <= {0.0, 1.0}]
+    _init_R_bnlearn()
+    indices = [_subsample_indices(n, subsample_fraction, rng) for _ in range(B)]
+    adjacencies = [_bnlearn_one_subsample(idx, X, y01, disc_cols, method, max_sx)
+                   for idx in indices]
+    return np.sum(adjacencies, axis=0) / B
+
+
+# full recovered cpdags: whole graph, not just adjacency to y.
+# the *_stability_q sources above collapse each run to a length-p adjacency-to-y
+# vector (all q needs). for orientation scoring and the consensus-graph picture
+# we need the entire (p+1)x(p+1) recovered cpdag. amat convention (pcalg): a
+# nonzero amat[i,j] is a mark from i into j; amat[i,j]=amat[j,i]=1 is undirected
+# (i--j); amat[i,j]=1, amat[j,i]=0 is the directed edge i->j (arrowhead at j).
+# the last node (index p) is the target.
+
+def _cpdag_pc_R(data: np.ndarray, alpha: float, m_max: int) -> np.ndarray:
+    """Full PC CPDAG (Fisher-Z) on a stacked [X | y] matrix; returns the amat."""
+    import rpy2.robjects as ro
+    from rpy2.robjects.conversion import localconverter
+    with localconverter(_R_CONVERTER):
+        ro.globalenv['X_sub'] = data
+    ro.r('n_sub <- nrow(X_sub); p_sub <- ncol(X_sub)')
+    ro.r('suffStat <- list(C = cor(X_sub), n = n_sub)')
+    ro.r(f'res <- pc(suffStat, indepTest=gaussCItest, alpha={alpha}, '
+         f'p=p_sub, m.max={m_max}, verbose=FALSE)')
+    with localconverter(_R_CONVERTER):
+        return np.array(ro.r('as(res@graph, "matrix")'))
+
+
+def _cpdag_ges_R(data: np.ndarray) -> np.ndarray:
+    """Full GES CPDAG (Gaussian-BIC) on a stacked [X | y] matrix; returns the amat."""
+    import rpy2.robjects as ro
+    from rpy2.robjects.conversion import localconverter
+    with localconverter(_R_CONVERTER):
+        ro.globalenv['X_sub'] = data
+    ro.r('score <- new("GaussL0penObsScore", as.matrix(X_sub))')
+    ro.r('res <- ges(score, verbose=FALSE)')
+    with localconverter(_R_CONVERTER):
+        return np.array(ro.r('as(res$essgraph, "matrix")'))
+
+
+def pc_full_cpdag(X: np.ndarray, y_continuous: np.ndarray,
+                  alpha: float = 0.1, m_max: int = 5) -> np.ndarray:
+    """Recovered PC CPDAG on the full sample; (p+1)x(p+1) amat, y is the last node."""
+    _init_R_pcalg()
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore')
+        return _cpdag_pc_R(np.column_stack([X, y_continuous]), alpha, m_max)
+
+
+def ges_full_cpdag(X: np.ndarray, y_continuous: np.ndarray) -> np.ndarray:
+    """Recovered GES CPDAG on the full sample; (p+1)x(p+1) amat, y is the last node."""
+    _init_R_pcalg()
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore')
+        return _cpdag_ges_R(np.column_stack([X, y_continuous]))
+
+
+def dag_to_cpdag_amat(adj_dag: np.ndarray) -> np.ndarray:
+    """True DAG (amat[i,j]=1 iff i->j) -> its CPDAG amat via pcalg::dag2cpdag.
+
+    PC/GES can only recover a Markov-equivalence class, so the fair comparison
+    target is the *CPDAG* of the true DAG, not the DAG: edges the data cannot
+    orient (no v-structure forces them) are left undirected in both, and so are
+    not charged as orientation errors.
+    """
+    _init_R_pcalg()
+    import rpy2.robjects as ro
+    from rpy2.robjects.conversion import localconverter
+    with localconverter(_R_CONVERTER):
+        ro.globalenv['amat_dag'] = adj_dag.astype(float)
+    ro.r('rownames(amat_dag) <- colnames(amat_dag) <- '
+         'as.character(seq_len(nrow(amat_dag)) - 1L)')
+    ro.r('amat_cp <- as(dag2cpdag(as(amat_dag, "graphNEL")), "matrix")')
+    with localconverter(_R_CONVERTER):
+        return np.array(ro.r('amat_cp'))
+
+
+def edge_stability_matrix(X: np.ndarray, y_continuous: np.ndarray,
+                          method: str = 'ges', B: int = 100,
+                          subsample_fraction: float = 0.5,
+                          alpha: float = 0.1, m_max: int = 5,
+                          rng: np.random.Generator | None = None) -> np.ndarray:
+    """Per-edge stability: freq[i,j] = fraction of B subsamples whose recovered
+    CPDAG carries a mark from i into j. Skeleton stability of pair {i,j} is
+    max(freq[i,j], freq[j,i]); orientation confidence is freq[i,j] vs freq[j,i].
+    Drives the consensus-CPDAG picture (face validity of the recovered edges)."""
+    if rng is None:
+        rng = np.random.default_rng()
+    n, p = X.shape
+    _init_R_pcalg()
+    acc = np.zeros((p + 1, p + 1))
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore')
+        for _ in range(B):
+            idx = _subsample_indices(n, subsample_fraction, rng)
+            data = np.column_stack([X[idx], y_continuous[idx]])
+            amat = (_cpdag_ges_R(data) if method == 'ges'
+                    else _cpdag_pc_R(data, alpha, m_max))
+            acc += (amat != 0).astype(float)
+    return acc / B

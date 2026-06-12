@@ -7,9 +7,11 @@ quantile-binarize each feature into indicator columns (q propagated to the
 children); vanilla (mu=0) vs causal (mu by inner-CV log-loss) at matched K over
 the outer splits. Writes q, per-split metrics, and the parity table to results/.
 
-q source (--qsrc): PC or GES subsample-stability on the original features. The
-synthetic experiments found GES is the selective source (PC near-noise), so GES
-is the stronger parity test: it lets the prior engage and still tie vanilla.
+q source (--qsrc): pc/ges are Gaussian (pcalg, Fisher-Z / Gaussian-BIC); pc_cg/
+ges_cg are conditional-Gaussian (bnlearn mi-cg / bic-cg), appropriate for FICO's
+mixed shape (continuous features, binary target). The CG variants are the
+principled choice here; combine with --sentinel-nan to also handle the -7/-8/-9
+missingness codes.
 
 DATA: raw 23-feature heloc_dataset_v1.csv (FICO Community Explainable ML
 Challenge) at the path below; target 'RiskFlag', positive class 'Bad'.
@@ -40,18 +42,21 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO_ROOT))
 
 from src.causal_prior.cv_mu import cv_pick_mu  # noqa: E402
-from src.causal_prior.priors import pc_stability_q, ges_stability_q  # noqa: E402
+from src.causal_prior.priors import (  # noqa: E402
+    pc_stability_q, ges_stability_q, bnlearn_stability_q)
 from experiments._io import new_run_dir  # noqa: E402
 
 DATA = REPO_ROOT / 'data/real/raw/HelocData.csv'
 TARGET = 'RiskFlag'
-POS_LABEL = 'Bad'          # the credit-risk event = positive class
+POS_LABEL = 'Bad'
+SENTINELS = (-7, -8, -9)   # fico codes: no record / no usable trades / condition not met
 
 
 def parse_args():
     p = argparse.ArgumentParser()
-    p.add_argument('--qsrc', choices=['pc', 'ges'], default='pc',
-                   help='causal-discovery source for q')
+    p.add_argument('--qsrc', choices=['pc', 'ges', 'pc_cg', 'ges_cg'], default='pc',
+                   help='q source: pc/ges = Gaussian (pcalg); pc_cg/ges_cg = '
+                        'conditional-Gaussian for mixed data (bnlearn)')
     p.add_argument('--k', type=int, default=10, help='matched sparsity for both arms')
     p.add_argument('--splits', type=int, default=10, help='outer train/test splits')
     p.add_argument('--test_size', type=float, default=0.3)
@@ -59,6 +64,9 @@ def parse_args():
     p.add_argument('--b', type=int, default=100, help='discovery stability subsamples')
     p.add_argument('--n_thresholds', type=int, default=4,
                    help='interior quantiles per feature for binarization')
+    p.add_argument('--sentinel-nan', action='store_true',
+                   help="treat FICO codes -7/-8/-9 as missing (median-impute over "
+                        "valid values + add '_missing' indicators) not as magnitudes")
     p.add_argument('--seed', type=int, default=0)
     p.add_argument('--smoke', action='store_true',
                    help='shrink the run for a quick end-to-end check')
@@ -75,14 +83,42 @@ def _import_fasterrisk():
     return FasterRisk
 
 
+def load_features(df, sentinel_nan):
+    """Numeric feature matrix and names. With sentinel_nan, FICO's special codes
+    (-7/-8/-9) are treated as missing rather than magnitudes: each affected column
+    is median-imputed over its valid values, and a binary `<feat>_missing` indicator
+    is appended so informative missingness stays available to the graph and model."""
+    names = [c for c in df.columns if c != TARGET]
+    raw = df[names].apply(pd.to_numeric, errors='coerce')
+    if not sentinel_nan:
+        return raw.fillna(0.0).to_numpy(float), names
+    cols, out_names = [], []
+    for name in names:
+        s = raw[name].astype(float)
+        miss = s.isin(SENTINELS)
+        valid = s.mask(miss)
+        cols.append(valid.fillna(valid.median()).fillna(0.0).to_numpy(float))
+        out_names.append(name)
+        if miss.any():
+            cols.append(miss.astype(float).to_numpy())
+            out_names.append(f'{name}_missing')
+    return np.column_stack(cols), out_names
+
+
 def binarize(X_orig, names, n_thresholds):
-    """Threshold each original feature at interior quantiles into `<= t` indicator
-    columns. Returns (X_bin, col_names, parent_idx) where parent_idx[c] is the
+    """Threshold each non-binary feature at interior quantiles into `<= t` indicator
+    columns; pass already-binary columns (e.g. the missingness flags) through
+    unchanged. Returns (X_bin, col_names, parent_idx) where parent_idx[c] is the
     index into `names` of the original feature column c was derived from."""
     qlevels = np.linspace(0.0, 1.0, n_thresholds + 2)[1:-1]
     cols, col_names, parent = [], [], []
     for j, name in enumerate(names):
         x = X_orig[:, j]
+        if set(np.unique(x).tolist()) <= {0.0, 1.0}:
+            cols.append(x)
+            col_names.append(name)
+            parent.append(j)
+            continue
         for t in np.unique(np.quantile(x, qlevels)):
             cols.append((x <= t).astype(float))
             col_names.append(f'{name}_le_{t:g}')
@@ -116,14 +152,20 @@ def fit_eval(FasterRisk, X_tr, y_tr, X_te, y_te, mu, q, k):
 
 
 def discover_q(qsrc, X, y, b, seed):
+    rng = np.random.default_rng(seed)
     with warnings.catch_warnings():
         warnings.simplefilter('ignore')
         if qsrc == 'ges':
-            q, _ = ges_stability_q(X, y, B=b, subsample_fraction=0.5,
-                                   rng=np.random.default_rng(seed))
+            q, _ = ges_stability_q(X, y, B=b, subsample_fraction=0.5, rng=rng)
+        elif qsrc == 'pc_cg':
+            q = bnlearn_stability_q(X, y, method='mi-cg', B=b,
+                                    subsample_fraction=0.5, rng=rng)
+        elif qsrc == 'ges_cg':
+            q = bnlearn_stability_q(X, y, method='bic-cg', B=b,
+                                    subsample_fraction=0.5, rng=rng)
         else:
             q = pc_stability_q(X, y, B=b, subsample_fraction=0.5,
-                               alpha=0.1, m_max=5, rng=np.random.default_rng(seed))
+                               alpha=0.1, m_max=5, rng=rng)
     return q
 
 
@@ -136,11 +178,12 @@ def main():
 
     df = pd.read_csv(DATA)
     y = np.where(df[TARGET].astype(str).str.strip() == POS_LABEL, 1, -1).astype(int)
-    names = [c for c in df.columns if c != TARGET]
-    X_orig = df[names].apply(pd.to_numeric, errors='coerce').fillna(0.0).to_numpy(float)
+    X_orig, names = load_features(df, args.sentinel_nan)
     n, p_orig = X_orig.shape
-    print(f'FICO: n={n}  features={p_orig}  positive ({POS_LABEL})={(y == 1).mean():.0%}',
-          flush=True)
+    n_ind = sum(nm.endswith('_missing') for nm in names)
+    extra = f' (+{n_ind} missingness indicators)' if args.sentinel_nan else ''
+    print(f'FICO: n={n}  features={p_orig}{extra}  '
+          f'positive ({POS_LABEL})={(y == 1).mean():.0%}', flush=True)
 
     print(f'{args.qsrc.upper()} subsample-stability (B={args.b}) on original features...',
           flush=True)
@@ -179,7 +222,8 @@ def main():
                  .agg(['mean', 'std']).loc[['vanilla', 'causal']])
     mu_hats = df_splits.loc[df_splits['arm'] == 'causal', 'mu_hat_rel'].to_numpy()
 
-    suffix = f'fico_{args.qsrc}_k{args.k}' + ('_smoke' if args.smoke else '')
+    suffix = (f'fico_{args.qsrc}_k{args.k}' + ('_sent' if args.sentinel_nan else '')
+              + ('_smoke' if args.smoke else ''))
     config = {**vars(args), 'data': str(DATA), 'target': TARGET, 'pos_label': POS_LABEL,
               'n': int(n), 'p_orig': int(p_orig), 'mu_scale': mu_scale,
               'mu_hat_rel_mean': float(mu_hats.mean()),
