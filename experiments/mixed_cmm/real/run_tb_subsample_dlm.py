@@ -15,7 +15,6 @@ Usage:
 """
 import sys
 import argparse
-import json
 import warnings
 from pathlib import Path
 
@@ -27,6 +26,7 @@ import numpy as np
 import pandas as pd
 from src.data.load_tb import load_tb_data, prevalence_filter, lineage_dummies, type_beyond_MDR
 from src.causal_discovery.cmm_utils import subsample_cmm, edge_stability, per_node_k_summary
+from experiments._io import new_run_dir
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DATA_PATH = REPO_ROOT / 'data' / 'real' / 'processed' / 'tb_pheno_geno_clean.csv'
@@ -138,14 +138,7 @@ def main():
     suffix_parts.extend([f'mp{args.max_parents}', f'k{args.k_max}', f'mcc{args.min_cluster_count}'])
     suffix = '_' + '_'.join(suffix_parts)
     base = REPO_ROOT / 'results' / 'mixed_cmm' / 'subsampling' / f'tb_subsample_dlm{suffix}'
-    output_dir = base
-    i = 2
-    while output_dir.exists():
-        output_dir = base.with_name(base.name + f'_{i}')
-        i += 1
-    output_dir.mkdir(parents=True)
-    with open(output_dir / 'config.json', 'w') as f:
-        json.dump({**vars(args), 'mic_col': MIC_COL, 'features': features}, f, indent=2)
+    output_dir = new_run_dir(base, {**vars(args), 'mic_col': MIC_COL, 'features': features})
 
     cmm_list, features_per_run = subsample_cmm(X, forbidden, n_runs=args.n_runs, use_logistic=True,
                                                max_parents=args.max_parents, k_max=args.k_max,

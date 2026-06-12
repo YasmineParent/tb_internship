@@ -1,4 +1,4 @@
-"""Phase A of the §6.1 mechanism test: precompute stability-selection q vectors.
+"""Phase A of the mechanism test: precompute stability-selection q vectors.
 
 For each cell (seed, p_edge, p, n, k_star) defined by config.SWEEPS, generate
 the linear-Gaussian-DAG synthetic and compute the slow bootstrap-stability q
@@ -42,7 +42,7 @@ def compute_mu_scale(X: np.ndarray, y: np.ndarray) -> float:
     """median |grad_j L| at w=0 for the logistic loss with y in {-1, +1}.
 
     At w=0 the gradient simplifies to -0.5 * (X^T y); we report its median
-    absolute value as the data-relative scale for mu (pipeline.ipynb §2.4).
+    absolute value as the data-relative scale for mu.
     """
     return float(np.median(0.5 * np.abs(X.T @ y)))
 
@@ -142,6 +142,7 @@ def main() -> None:
         print(f'[{i}/{len(cells)}] {cell.filename}', flush=True)
         process_cell(cell, B=args.B, cache_dir=args.cache_dir, force=args.force,
                      sources=sources)
+    print(f'Done. Results in {args.cache_dir}/', flush=True)
 
 
 if __name__ == '__main__':

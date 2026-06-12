@@ -1,4 +1,4 @@
-"""§6.1 recovery sweep with CV-on-log_loss mu selection.
+"""Recovery sweep with CV-on-log_loss mu selection.
 
 For each Phase A cell and each q source, pick mu by 5-fold CV-on-log_loss
 across the same log-spaced mu grid used by recovery_sweep.py, then refit
@@ -190,6 +190,7 @@ def main() -> None:
         for p in cell_paths
     ):
         print(f'  {m}', flush=True)
+    print(f'Done. Results in {args.out_dir}/', flush=True)
 
 
 if __name__ == '__main__':

@@ -1,13 +1,13 @@
-"""Caveat 1(i): does FasterRisk's beam search find the exact MAP support?
+"""Does FasterRisk's beam search find the exact MAP support?
 
-Brute-forces the exact continuous MAP support at the §6.1 anchor (p=30, K=2k*),
-which is out of reach for the p=12 enumeration in exact_radii.py but tractable on
-many cores: ~5.3e7 supports at K=10, ~10 min/seed on 48 cores with the compact
-Newton fit below (~0.55 ms/fit vs ~7.7 ms for sklearn, matched to ~1e-2).
+Brute-forces the exact continuous MAP support at the p=30, K=2k* anchor, which is
+out of reach for the p=12 enumeration in exact_radii.py but tractable on many
+cores: ~5.3e7 supports at K=10, ~10 min/seed on 48 cores with the compact Newton
+fit below (~0.55 ms/fit vs ~7.7 ms for sklearn, matched to ~1e-2).
 
 For each support S with |S| <= K we compute the restricted continuous logistic
-optimum ell(S) (L2 lambda=1, intercept unpenalised; this is the C_REG=1 convention
-of exact_radii.py, a stand-in for FasterRisk's box). The exact MAP support for a
+optimum ell(S) (L2 lambda=1, intercept unpenalised; the C_REG=1 convention of
+exact_radii.py, a stand-in for FasterRisk's box). The exact MAP support for a
 given (q, mu) is argmin_S [ell(S) - mu Q(S)], found by a streaming reduce over all
 supports. We then fit FasterRisk on the same cell and compare its beam-selected
 support to the exact MAP support:
@@ -17,21 +17,26 @@ support to the exact MAP support:
   obj_gap     : F_q(S_beam) - F_q(S_exact) >= 0, how suboptimal the beam support is
 
 ell(S) does not depend on q or mu, so all (q, mu) conditions share the one
-expensive enumeration. Conditions: vanilla (mu=0), oracle and ges at mu_rel in
-{0.5, 2.0}. mu is absolute = mu_rel * mu_scale, the same unit passed to FasterRisk.
+expensive enumeration. Conditions: vanilla (mu=0), oracle and ges at each mu_rel.
+mu is absolute = mu_rel * mu_scale, the same unit passed to FasterRisk.
+
+Usage:
+    python experiments/causal_prior/synthetic/beam_gap.py
+    python experiments/causal_prior/synthetic/beam_gap.py --smoke
+    python experiments/causal_prior/synthetic/beam_gap.py --p 30 --k 10 --n-seeds 5
 """
 from __future__ import annotations
 
-import csv
+import argparse
 import itertools
 import json
-import os
 import sys
 import time
 import warnings
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 from joblib import Parallel, delayed
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -39,21 +44,10 @@ sys.path.insert(0, str(ROOT))
 from src.data.synthetic_lingauss import LinGaussSyntheticData      # noqa: E402
 from src.causal_prior.q_sources import oracle_q                    # noqa: E402
 from src.causal_prior.priors import ges_stability_q                # noqa: E402
-
-P = int(os.environ.get('P', '30'))
-N = int(os.environ.get('N', '300'))
-K_STAR = int(os.environ.get('K_STAR', '5'))
-P_EDGE = float(os.environ.get('P_EDGE', '0.2'))
-K = int(os.environ.get('K', '8'))
-LAM = 1.0                                  # L2 (matches exact_radii C_REG=1)
-N_SEEDS = int(os.environ.get('N_SEEDS', '5'))
-SEED0 = int(os.environ.get('SEED0', '0'))
-N_JOBS = int(os.environ.get('N_JOBS', '-1'))
-CHUNK = int(os.environ.get('CHUNK', '60000'))
-B_DISC = int(os.environ.get('B_DISC', '50'))
-MU_REL = tuple(float(x) for x in os.environ.get('MU_REL', '0.5,2.0').split(','))
+from experiments._io import new_run_dir                            # noqa: E402
 
 OUT_DIR = ROOT / 'results' / 'causal_prior' / 'synthetic' / 'beam_gap'
+LAM = 1.0                                  # L2 (matches exact_radii C_REG=1)
 CSV_FIELDS = [
     'seed', 'p', 'n', 'k_star', 'p_edge', 'K', 'q_name', 'mu_rel', 'mu',
     'k_exact', 'k_beam', 'beam_match', 'jaccard', 'obj_gap',
@@ -61,8 +55,31 @@ CSV_FIELDS = [
 ]
 
 
-def fit_loss(Xs: np.ndarray, y: np.ndarray, lam: float = LAM,
-             iters: int = 30, tol: float = 1e-10) -> float:
+def parse_args():
+    p = argparse.ArgumentParser()
+    p.add_argument('--p', type=int, default=30, help='feature count')
+    p.add_argument('--n', type=int, default=300, help='sample size')
+    p.add_argument('--k-star', type=int, default=5, help='true sparsity')
+    p.add_argument('--p-edge', type=float, default=0.2, help='DAG edge probability')
+    p.add_argument('--k', type=int, default=8, help='sparsity budget')
+    p.add_argument('--n-seeds', type=int, default=5)
+    p.add_argument('--seed0', type=int, default=0, help='first seed')
+    p.add_argument('--n-jobs', type=int, default=-1, help='joblib parallelism over chunks')
+    p.add_argument('--chunk', type=int, default=60000, help='supports per enumeration chunk')
+    p.add_argument('--b-disc', type=int, default=50, help='GES stability subsamples')
+    p.add_argument('--mu-rel', type=str, default='0.5,2.0',
+                   help='comma-separated mu_rel values for the prior conditions')
+    p.add_argument('--smoke', action='store_true',
+                   help='shrink the enumeration for a quick end-to-end check')
+    args = p.parse_args()
+    if args.smoke:
+        args.p, args.n, args.k, args.k_star = 16, 100, 4, 3
+        args.n_seeds, args.b_disc = 1, 10
+    args.mu_rel = tuple(float(x) for x in args.mu_rel.split(','))
+    return args
+
+
+def fit_loss(Xs, y, lam=LAM, iters=30, tol=1e-10):
     """Restricted continuous logistic min: sum NLL + 0.5 lam ||w||^2, intercept free."""
     n, k = Xs.shape
     Z = np.empty((n, k + 1)); Z[:, 0] = 1.0; Z[:, 1:] = Xs
@@ -85,7 +102,7 @@ def fit_loss(Xs: np.ndarray, y: np.ndarray, lam: float = LAM,
     return float(-(y * np.log(p) + (1 - y) * np.log(1 - p)).sum())
 
 
-def _chunks(p: int, K: int, size: int):
+def _chunks(p, K, size):
     it = itertools.chain.from_iterable(itertools.combinations(range(p), r)
                                        for r in range(K + 1))
     while True:
@@ -123,28 +140,30 @@ def jaccard(a, b):
     return 1.0 if not u else len(a & b) / len(u)
 
 
-def run_seed(seed: int) -> list[dict]:
-    d = LinGaussSyntheticData(p=P, n_samples=N, k_star=K_STAR, p_edge=P_EDGE, seed=seed)
+def run_seed(seed, args):
+    d = LinGaussSyntheticData(p=args.p, n_samples=args.n, k_star=args.k_star,
+                              p_edge=args.p_edge, seed=seed)
     X = d.X
     y01 = (d.y > 0).astype(float)
     y_signed = d.y
     S_star = frozenset(int(j) for j in d.S_star)
     mu_scale = float(np.median(0.5 * np.abs(X.T @ y_signed)))
-    q_or = oracle_q(P, sorted(S_star))
+    q_or = oracle_q(args.p, sorted(S_star))
     with warnings.catch_warnings():
         warnings.simplefilter('ignore')
-        q_ge, _ = ges_stability_q(X, d.y_continuous, B=B_DISC,
+        q_ge, _ = ges_stability_q(X, d.y_continuous, B=args.b_disc,
                                   rng=np.random.default_rng(seed))
 
     # conditions: (name, q_vector, mu_absolute). vanilla = mu 0 (q inert).
     conditions = [('vanilla', q_or, 0.0)]
-    for mr in MU_REL:
+    for mr in args.mu_rel:
         conditions.append((f'oracle@{mr}', q_or, mr * mu_scale))
         conditions.append((f'ges@{mr}', q_ge, mr * mu_scale))
 
     t = time.time()
-    results = Parallel(n_jobs=N_JOBS)(
-        delayed(_process_chunk)(blk, X, y01, conditions) for blk in _chunks(P, K, CHUNK))
+    results = Parallel(n_jobs=args.n_jobs)(
+        delayed(_process_chunk)(blk, X, y01, conditions)
+        for blk in _chunks(args.p, args.k, args.chunk))
     best = {name: (np.inf, ()) for name, _, _ in conditions}
     for r in results:
         for name, (F, S) in r.items():
@@ -153,7 +172,7 @@ def run_seed(seed: int) -> list[dict]:
     enum_s = time.time() - t
 
     qmap = {'vanilla': (None, 0.0)}
-    for mr in MU_REL:
+    for mr in args.mu_rel:
         qmap[f'oracle@{mr}'] = (q_or, mr * mu_scale)
         qmap[f'ges@{mr}'] = (q_ge, mr * mu_scale)
 
@@ -161,8 +180,8 @@ def run_seed(seed: int) -> list[dict]:
     for name, q, mu in conditions:
         S_exact = frozenset(best[name][1])
         qv, _ = qmap[name]
-        S_beam = _fit_fr_support(X, y_signed, K, mu, qv)
-        # objective gap of the beam support under the same ell + q
+        S_beam = _fit_fr_support(X, y_signed, args.k, mu, qv)
+
         def F_of(S):
             ell = fit_loss(X[:, sorted(S)], y01) if S else fit_loss(X[:, :0], y01)
             Q = float(q[list(S)].sum()) if S else 0.0
@@ -170,7 +189,8 @@ def run_seed(seed: int) -> list[dict]:
         gap = F_of(S_beam) - F_of(S_exact)
         mr = mu / mu_scale if mu_scale > 0 else 0.0
         rows.append({
-            'seed': seed, 'p': P, 'n': N, 'k_star': K_STAR, 'p_edge': P_EDGE, 'K': K,
+            'seed': seed, 'p': args.p, 'n': args.n, 'k_star': args.k_star,
+            'p_edge': args.p_edge, 'K': args.k,
             'q_name': name, 'mu_rel': round(mr, 4), 'mu': mu,
             'k_exact': len(S_exact), 'k_beam': len(S_beam),
             'beam_match': int(S_beam == S_exact), 'jaccard': jaccard(S_beam, S_exact),
@@ -185,33 +205,30 @@ def run_seed(seed: int) -> list[dict]:
 
 
 def main():
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
-    print(f'beam_gap: p={P} n={N} k*={K_STAR} p_edge={P_EDGE} K={K} '
-          f'seeds={SEED0}..{SEED0+N_SEEDS-1} mu_rel={MU_REL} n_jobs={N_JOBS}', flush=True)
+    args = parse_args()
+    last = args.seed0 + args.n_seeds - 1
+    print(f'beam_gap: p={args.p} n={args.n} k*={args.k_star} p_edge={args.p_edge} '
+          f'K={args.k} seeds={args.seed0}..{last} mu_rel={args.mu_rel} '
+          f'n_jobs={args.n_jobs}', flush=True)
     all_rows = []
-    for seed in range(SEED0, SEED0 + N_SEEDS):
-        all_rows.extend(run_seed(seed))
+    for seed in range(args.seed0, args.seed0 + args.n_seeds):
+        all_rows.extend(run_seed(seed, args))
+    df = pd.DataFrame(all_rows, columns=CSV_FIELDS)
 
-    out = OUT_DIR / f'beam_gap_p{P}_n{N}_k{K_STAR}_pedge{P_EDGE}_K{K}_seeds{SEED0}-{SEED0+N_SEEDS-1}.csv'
-    with out.open('w', newline='') as f:
-        w = csv.DictWriter(f, fieldnames=CSV_FIELDS)
-        w.writeheader(); w.writerows(all_rows)
-    print(f'wrote {out}', flush=True)
+    suffix = (f'beam_gap_p{args.p}_n{args.n}_k{args.k_star}_pedge{args.p_edge}'
+              f'_K{args.k}_seeds{args.seed0}-{last}' + ('_smoke' if args.smoke else ''))
+    output_dir = new_run_dir(OUT_DIR / suffix, vars(args))
+    df.to_csv(output_dir / 'beam_gap.csv', index=False)
 
-    names = []
-    for r in all_rows:
-        if r['q_name'] not in names:
-            names.append(r['q_name'])
-    print('\n=== beam vs exact MAP support, by condition ===', flush=True)
-    print(f'{"condition":>12s} | {"match%":>6s} {"mean_jacc":>9s} {"mean_gap":>9s} '
-          f'{"exact=S*":>8s}', flush=True)
-    for nm in names:
-        rs = [r for r in all_rows if r['q_name'] == nm]
-        mt = 100 * np.mean([r['beam_match'] for r in rs])
-        jc = np.mean([r['jaccard'] for r in rs])
-        gp = np.mean([r['obj_gap'] for r in rs])
-        es = 100 * np.mean([r['exact_is_Sstar'] for r in rs])
-        print(f'{nm:>12s} | {mt:>5.0f}% {jc:>9.3f} {gp:>9.3f} {es:>7.0f}%', flush=True)
+    summary = (df.groupby('q_name', sort=False)
+               .agg(match_pct=('beam_match', lambda s: 100 * s.mean()),
+                    mean_jacc=('jaccard', 'mean'),
+                    mean_gap=('obj_gap', 'mean'),
+                    exact_is_Sstar_pct=('exact_is_Sstar', lambda s: 100 * s.mean())))
+    summary.to_csv(output_dir / 'summary.csv')
+    print('\nbeam vs exact MAP support, by condition:', flush=True)
+    print(summary.to_string(), flush=True)
+    print(f'Done. Results in {output_dir}/', flush=True)
 
 
 if __name__ == '__main__':

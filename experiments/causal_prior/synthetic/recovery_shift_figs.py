@@ -4,9 +4,13 @@ Fig 1 (mechanism): out-of-environment transport gap vs how much the fitted
 support relies on non-causal correlates. Pooled over all sources/seeds/p_edge.
 Fig 2 (provenance): per-source in-distribution AUC parity vs out-of-environment
 transport gap, showing causal discovery (ges) routes to the low-reliance regime.
+
+Usage:
+    python experiments/causal_prior/synthetic/recovery_shift_figs.py --csv <shift_sweep.csv>
 """
 from __future__ import annotations
 
+import argparse
 import sys
 from pathlib import Path
 
@@ -15,8 +19,8 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 ROOT = Path(__file__).resolve().parents[3]
-CSV = ROOT / 'results/causal_prior/synthetic/recovery_shift/shift_sweep_p30_n300_k5_K10_seeds0-11.csv'
-OUT = ROOT / 'results/causal_prior/synthetic/recovery_shift'
+DEFAULT_CSV = ROOT / ('results/causal_prior/synthetic/recovery_shift/'
+                      'shift_sweep_p30_n300_k5_K10_seeds0-11.csv')
 
 BINS = [-0.01, 0.001, 0.1, 0.2, 0.3, 1.01]
 BINLAB = ['0', '(0,.1]', '(.1,.2]', '(.2,.3]', '>.3']
@@ -25,8 +29,13 @@ TOP_MU = 2.0
 SRC_ORDER = ['oracle', 'ges', 'pc', 'vanilla', 'bootstrap_l1', 'adversarial']
 
 
-def load():
-    return pd.read_csv(CSV)
+def parse_args():
+    p = argparse.ArgumentParser()
+    p.add_argument('--csv', type=Path, default=DEFAULT_CSV,
+                   help='recovery_shift.py output CSV to plot')
+    p.add_argument('--out-dir', type=Path, default=None,
+                   help='where to write the PNGs (default: alongside --csv)')
+    return p.parse_args()
 
 
 def fig_mechanism(df, path):
@@ -49,7 +58,7 @@ def fig_mechanism(df, path):
     fig.suptitle('Transport failure is governed by correlate reliance (pooled, 60 cells)')
     fig.tight_layout()
     fig.savefig(path, dpi=130, bbox_inches='tight')
-    print(f'wrote {path}')
+    print(f'wrote {path}', flush=True)
 
 
 def fig_provenance(df, path):
@@ -81,13 +90,17 @@ def fig_provenance(df, path):
     fig.suptitle('Same models, indistinguishable in-distribution, split out-of-environment')
     fig.tight_layout()
     fig.savefig(path, dpi=130, bbox_inches='tight')
-    print(f'wrote {path}')
+    print(f'wrote {path}', flush=True)
 
 
 def main():
-    df = load()
-    fig_mechanism(df, OUT / 'fig_mechanism.png')
-    fig_provenance(df, OUT / 'fig_provenance.png')
+    args = parse_args()
+    out_dir = args.out_dir or args.csv.parent
+    out_dir.mkdir(parents=True, exist_ok=True)
+    df = pd.read_csv(args.csv)
+    fig_mechanism(df, out_dir / 'fig_mechanism.png')
+    fig_provenance(df, out_dir / 'fig_provenance.png')
+    print(f'Done. Figures in {out_dir}/', flush=True)
 
 
 if __name__ == '__main__':

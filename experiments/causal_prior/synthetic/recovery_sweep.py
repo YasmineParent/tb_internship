@@ -1,4 +1,4 @@
-"""§6.1 recovery sweep: fit FasterRisk over (q source, mu) per Phase A cell.
+"""Recovery sweep: fit FasterRisk over (q source, mu) per Phase A cell.
 
 For each cell in the Phase A cache, derive the fast q sources (oracle,
 uniform, adversarial) from S_star and confounded, take q_pc / q_ges /
@@ -15,7 +15,7 @@ mu_relative = mu / mu_scale, where mu_scale = median |grad_j L| at w=0
 
 Sources: oracle (sigma=0), uniform (0.5), adversarial, pc, ges,
 bootstrap_l1. Sources missing from the cell file (e.g. q_ges on dense
-legacy cells) are skipped. In addition, the §6.4 hard-pre-selection
+legacy cells) are skipped. In addition, the hard-pre-selection
 baseline is run for the causal/predictive sources (pc, ges,
 bootstrap_l1) at thresholds {0.3, 0.5, 0.7}; these rows have
 q_source = '<source>_hard_t<threshold>', mu = 0, K reduced to the
@@ -53,7 +53,7 @@ OUT_DIR = REPO_ROOT / 'results' / 'causal_prior' / 'synthetic' / 'recovery'
 N_MU_LOG = 12          # log-spaced points in (mu_scale * 10^-2, mu_scale * 10^1)
 K_MULTIPLIER = 2       # K = K_MULTIPLIER * k_star
 SOURCES = ('oracle', 'uniform', 'adversarial', 'pc', 'ges', 'bootstrap_l1')
-HARD_THRESHOLDS = (0.3, 0.5, 0.7)  # MB-standard thresholds for the §6.4 hard-pre-selection baseline
+HARD_THRESHOLDS = (0.3, 0.5, 0.7)  # MB-standard thresholds for the hard-pre-selection baseline
 HARD_BASELINE_SOURCES = ('pc', 'ges', 'bootstrap_l1')  # only causal/predictive sources, not the synthetic q's
 
 CSV_FIELDS = [
@@ -173,7 +173,7 @@ def process_cell(cell_path: Path, out_path: Path, n_mu_log: int) -> str:
                 'fit_seconds': fit_seconds,
             })
 
-    # §6.4 baseline: hard pre-selection by q-threshold + vanilla FasterRisk
+    # hard pre-selection baseline: q-threshold + vanilla FasterRisk
     for q_name in HARD_BASELINE_SOURCES:
         if q_name not in sources:
             continue
@@ -241,6 +241,7 @@ def main() -> None:
         for p in cell_paths
     ):
         print(f'  {m}', flush=True)
+    print(f'Done. Results in {args.out_dir}/', flush=True)
 
 
 if __name__ == '__main__':

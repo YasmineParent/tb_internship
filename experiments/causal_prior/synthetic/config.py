@@ -1,4 +1,4 @@
-"""Shared experiment configuration for the §6.1 mechanism test.
+"""Shared experiment configuration for the mechanism test.
 
 DEFAULTS is the canonical operating point (the p=30 n=300 headline shape);
 each sweep in SWEEPS varies one axis at a time holding the others at
