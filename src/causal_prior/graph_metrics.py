@@ -38,8 +38,13 @@ def _prf(true_set: set, est_set: set) -> dict[str, float]:
     tp = len(true_set & est_set)
     prec = tp / len(est_set) if est_set else float('nan')
     rec = tp / len(true_set) if true_set else float('nan')
-    if np.isnan(prec) or np.isnan(rec) or (prec + rec) == 0:
-        f1 = float('nan') if (np.isnan(prec) and np.isnan(rec)) else 0.0
+    # f1 is nan whenever precision or recall is undefined, so cells where the
+    # quantity is not applicable (e.g. a fully unoriented true cpdag has no
+    # arrowheads to score) are skipped from downstream means, not counted as 0.
+    if np.isnan(prec) or np.isnan(rec):
+        f1 = float('nan')
+    elif (prec + rec) == 0:
+        f1 = 0.0
     else:
         f1 = 2 * prec * rec / (prec + rec)
     return {'precision': prec, 'recall': rec, 'f1': f1}

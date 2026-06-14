@@ -267,6 +267,12 @@ def bnlearn_stability_q(X: np.ndarray, y: np.ndarray, method: str = 'mi-cg',
         rng = np.random.default_rng()
     n, p = X.shape
     y01 = (np.asarray(y) > 0).astype(int)
+    # treat columns whose observed values are a subset of {0,1} as factors (the
+    # missingness indicators). edge case: a genuinely continuous column that by
+    # chance only takes values in {0,1}, or an all-constant column, is also typed
+    # as a factor here. harmless on the current data (continuous features are
+    # credit scores/ratios, never literally {0,1}); revisit if adding datasets
+    # where a continuous feature could be coincidentally binary.
     disc_cols = [j + 1 for j in range(p)
                  if set(np.unique(X[:, j]).tolist()) <= {0.0, 1.0}]
     _init_R_bnlearn()

@@ -3,13 +3,16 @@
 The §6.2 parity claim made the way the FasterRisk paper makes it (their Fig 4):
 sweep the sparsity k and plot test AUC for both arms with error bars over splits.
 "Curves lie on top of each other" *is* the parity claim, read in two seconds by
-anyone who knows the FasterRisk figure. q is k-independent, so it's discovered
-once; only the FasterRisk fit loops over k. Reuses every helper from
-fico_parity so the two stay in lockstep.
+anyone who knows the FasterRisk figure.
 
-Usage:
-    python experiments/causal_prior/real/fico_ksweep.py --qsrc ges_cg --sentinel-nan
-    python experiments/causal_prior/real/fico_ksweep.py --k-grid 2,4,6,8,10
+Leakage-free protocol: the causal q is discovered ONCE on a held-out discovery
+set (disjoint from all train/test rows), so the prior never sees the rows it is
+evaluated on. Within each train/test split the binarization thresholds and the
+mu scale are fit on train rows only and applied to test. This is the defensible
+version of the earlier full-data-q runner.
+
+usage:
+    python experiments/causal_prior/real/fico_ksweep.py --qsrc ges_cg --sentinel-nan --n-jobs 16
     python experiments/causal_prior/real/fico_ksweep.py --smoke
 """
 from __future__ import annotations
@@ -21,7 +24,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from sklearn.model_selection import StratifiedShuffleSplit
+from sklearn.model_selection import StratifiedShuffleSplit, train_test_split
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO_ROOT))
@@ -29,8 +32,8 @@ sys.path.insert(0, str(REPO_ROOT))
 from src.causal_prior.cv_mu import cv_pick_mu  # noqa: E402
 from experiments._io import new_run_dir  # noqa: E402
 from experiments.causal_prior.real.fico_parity import (  # noqa: E402
-    DATA, TARGET, POS_LABEL, load_features, binarize, discover_q, fit_eval,
-    _import_fasterrisk)
+    DATA, TARGET, POS_LABEL, load_features, fit_binarizer, apply_binarizer,
+    discover_q, fit_eval, _import_fasterrisk)
 
 
 def parse_args():
@@ -38,16 +41,17 @@ def parse_args():
     p.add_argument('--qsrc', choices=['pc', 'ges', 'pc_cg', 'ges_cg'], default='ges_cg')
     p.add_argument('--k-grid', default='2,4,6,8,10',
                    help='comma-separated sparsities to sweep')
-    p.add_argument('--splits', type=int, default=10)
+    p.add_argument('--splits', type=int, default=10, help='train/test splits on the eval pool')
     p.add_argument('--test_size', type=float, default=0.3)
+    p.add_argument('--discovery-frac', type=float, default=0.3,
+                   help='fraction of data held out as the q-discovery set (disjoint from eval)')
     p.add_argument('--n_cv', type=int, default=5)
     p.add_argument('--n-mu', type=int, default=12,
                    help='log-spaced mu grid points for the causal CV (dominant cost)')
-    p.add_argument('--b', type=int, default=100)
+    p.add_argument('--b', type=int, default=100, help='discovery stability subsamples')
     p.add_argument('--n_thresholds', type=int, default=4)
     p.add_argument('--n-jobs', type=int, default=1,
-                   help='parallel workers over the (split x k) units; q discovery '
-                        'stays single-session. Set near the box core count.')
+                   help='parallel workers over the train/test splits')
     p.add_argument('--sentinel-nan', action='store_true')
     p.add_argument('--seed', type=int, default=0)
     p.add_argument('--smoke', action='store_true')
@@ -58,41 +62,49 @@ def parse_args():
     return args
 
 
-def _ksweep_unit(s, tr, te, k, X_bin, y, q_bin, mu_grid, mu_scale, n_cv, seed):
-    """One (split, k) unit, both arms. Records the full fitted scorecard (betas,
-    intercept, multiplier) and the causal arm's whole mu-grid cv trace, not only
-    the summary metrics. Module-level and pure-Python (no R) so it pickles for
-    joblib; large arrays are memmapped by the loky backend. Vanilla refits per k;
-    causal reselects mu per k (mu interacts with k). The cv rng is keyed on the
-    split only, so the causal arm is reproducible regardless of scheduling order."""
+def _split_unit(s, train_abs, test_abs, X_orig, y, q_orig, names, k_grid,
+                n_thresholds, n_mu, n_cv, smoke, seed):
+    """One train/test split, all k, both arms. Binarization thresholds and mu
+    scale are fit on this split's TRAIN rows only (no leakage); q_orig comes from
+    the disjoint held-out discovery set. Records metrics, the fitted scorecards,
+    and the causal arm's cv trace. Module-level + pure-Python so it pickles for
+    joblib (no R here; discovery already ran once in the parent)."""
     FasterRisk = _import_fasterrisk()
+    spec, col_names, parent = fit_binarizer(X_orig[train_abs], names, n_thresholds)
+    q_bin = q_orig[parent]
+    Xtr, Xte = apply_binarizer(X_orig[train_abs], spec), apply_binarizer(X_orig[test_abs], spec)
+    ytr, yte = y[train_abs], y[test_abs]
+    mu_scale = float(np.median(0.5 * np.abs(Xtr.T @ ytr)))
+    mu_grid = np.concatenate([[0.0], np.logspace(-2, 1, 3 if smoke else n_mu)]) * mu_scale
+
+    metrics, coefs, trace = [], [], []
     with warnings.catch_warnings():
         warnings.simplefilter('ignore')
-        van = fit_eval(FasterRisk, X_bin[tr], y[tr], X_bin[te], y[te], 0.0, None, k,
-                       return_card=True)
-        cv = cv_pick_mu(X_bin[tr], y[tr], K=k, mu_grid=mu_grid, q=q_bin,
-                        n_splits=n_cv, criterion='log_loss',
-                        rng=np.random.default_rng(seed + s))
-        cau = fit_eval(FasterRisk, X_bin[tr], y[tr], X_bin[te], y[te],
-                       cv.mu_star, q_bin, k, return_card=True)
-    mu_hat_rel = cv.mu_star / mu_scale if mu_scale else 0.0
-    van_card, cau_card = van.pop('card'), cau.pop('card')
-    metrics = [
-        {'split': s, 'k': k, 'arm': 'vanilla', 'mu_hat_rel': 0.0, 'mu_star': 0.0,
-         'intercept': van_card['intercept'], 'multiplier': van_card['multiplier'], **van},
-        {'split': s, 'k': k, 'arm': 'causal', 'mu_hat_rel': mu_hat_rel,
-         'mu_star': float(cv.mu_star), 'intercept': cau_card['intercept'],
-         'multiplier': cau_card['multiplier'], **cau},
-    ]
-    coefs = ([{'split': s, 'k': k, 'arm': 'vanilla', 'col': j, 'coef': int(b)}
-              for j, b in enumerate(van_card['betas']) if b != 0]
-             + [{'split': s, 'k': k, 'arm': 'causal', 'col': j, 'coef': int(b)}
-                for j, b in enumerate(cau_card['betas']) if b != 0])
-    trace = [{'split': s, 'k': k, 'mu_index': i, 'cv_auc': float(a),
-              'cv_log_loss': float(ll), 'cv_stability': float(st)}
-             for i, (a, ll, st) in enumerate(zip(cv.aucs_per_mu,
-                                                 cv.log_losses_per_mu,
-                                                 cv.stabilities_per_mu))]
+        for k in k_grid:
+            van = fit_eval(FasterRisk, Xtr, ytr, Xte, yte, 0.0, None, k, return_card=True)
+            cv = cv_pick_mu(Xtr, ytr, K=k, mu_grid=mu_grid, q=q_bin, n_splits=n_cv,
+                            criterion='log_loss', rng=np.random.default_rng(seed + s))
+            cau = fit_eval(FasterRisk, Xtr, ytr, Xte, yte, cv.mu_star, q_bin, k,
+                           return_card=True)
+            mu_hat_rel = cv.mu_star / mu_scale if mu_scale else 0.0
+            vc, cc = van.pop('card'), cau.pop('card')
+            metrics += [
+                {'split': s, 'k': k, 'arm': 'vanilla', 'mu_hat_rel': 0.0, 'mu_star': 0.0,
+                 'intercept': vc['intercept'], 'multiplier': vc['multiplier'], **van},
+                {'split': s, 'k': k, 'arm': 'causal', 'mu_hat_rel': mu_hat_rel,
+                 'mu_star': float(cv.mu_star), 'intercept': cc['intercept'],
+                 'multiplier': cc['multiplier'], **cau},
+            ]
+            for arm, card in (('vanilla', vc), ('causal', cc)):
+                coefs += [{'split': s, 'k': k, 'arm': arm, 'feature': col_names[j],
+                           'coef': int(b)}
+                          for j, b in enumerate(card['betas']) if b != 0]
+            trace += [{'split': s, 'k': k, 'mu_index': i,
+                       'mu_rel': float(mu_grid[i] / (mu_scale or 1.0)),
+                       'cv_auc': float(a), 'cv_log_loss': float(ll), 'cv_stability': float(st)}
+                      for i, (a, ll, st) in enumerate(zip(cv.aucs_per_mu,
+                                                          cv.log_losses_per_mu,
+                                                          cv.stabilities_per_mu))]
     return {'metrics': metrics, 'coefs': coefs, 'trace': trace}
 
 
@@ -107,7 +119,7 @@ def plot_curve(df_agg, qsrc, out_png):
                     capsize=3, color=color, label=arm)
     ax.set_xlabel('model size (k)')
     ax.set_ylabel('test AUC')
-    ax.set_title(f'FICO parity curve ({qsrc})')
+    ax.set_title(f'FICO parity curve ({qsrc}, leakage-free q)')
     ax.legend()
     fig.tight_layout()
     fig.savefig(out_png, dpi=160)
@@ -123,35 +135,32 @@ def main():
     y = np.where(df[TARGET].astype(str).str.strip() == POS_LABEL, 1, -1).astype(int)
     X_orig, names = load_features(df, args.sentinel_nan)
     n, p_orig = X_orig.shape
-    print(f'FICO: n={n}  features={p_orig}  positive ({POS_LABEL})={(y == 1).mean():.0%}',
-          flush=True)
 
-    print(f'{args.qsrc.upper()} subsample-stability (B={args.b})...', flush=True)
-    q_orig = discover_q(args.qsrc, X_orig, y.astype(float), args.b, args.seed)
-    X_bin, bin_names, parent = binarize(X_orig, names, args.n_thresholds)
-    q_bin = q_orig[parent]
-    print(f'binarized: {X_bin.shape[1]} cols; q_bin nonzero on {int((q_bin > 0).sum())}',
-          flush=True)
+    # hold out a disjoint discovery set; q never sees the eval rows
+    pool_idx, disc_idx = train_test_split(
+        np.arange(n), test_size=args.discovery_frac,
+        stratify=(y > 0), random_state=args.seed)
+    print(f'FICO: n={n}  features={p_orig}  positive ({POS_LABEL})={(y == 1).mean():.0%}; '
+          f'discovery set n={len(disc_idx)} (held out), eval pool n={len(pool_idx)}', flush=True)
 
-    mu_scale = float(np.median(0.5 * np.abs(X_bin.T @ y)))
-    mu_rel = np.logspace(-2, 1, 3 if args.smoke else args.n_mu)
-    mu_grid = np.concatenate([[0.0], mu_rel]) * mu_scale
+    print(f'{args.qsrc.upper()} discovery (B={args.b}) on held-out set...', flush=True)
+    q_orig = discover_q(args.qsrc, X_orig[disc_idx], y[disc_idx].astype(float), args.b, args.seed)
 
     sss = StratifiedShuffleSplit(n_splits=args.splits, test_size=args.test_size,
                                  random_state=args.seed)
-    splits = list(sss.split(X_bin, (y > 0).astype(int)))
-    jobs = [(s, tr, te, k) for s, (tr, te) in enumerate(splits) for k in args.k_grid]
-    print(f'{len(jobs)} units ({len(splits)} splits x {len(args.k_grid)} k) '
-          f'on n_jobs={args.n_jobs}', flush=True)
+    splits = [(pool_idx[trp], pool_idx[tep])
+              for trp, tep in sss.split(pool_idx, (y[pool_idx] > 0).astype(int))]
+    print(f'{len(splits)} splits on eval pool; n_jobs={args.n_jobs}', flush=True)
 
-    unit_args = (X_bin, y, q_bin, mu_grid, mu_scale, args.n_cv, args.seed)
+    ua = (X_orig, y, q_orig, names, args.k_grid, args.n_thresholds,
+          args.n_mu, args.n_cv, args.smoke, args.seed)
     if args.n_jobs == 1:
-        results = [_ksweep_unit(s, tr, te, k, *unit_args) for (s, tr, te, k) in jobs]
+        results = [_split_unit(s, tr, te, *ua) for s, (tr, te) in enumerate(splits)]
     else:
-        # module-level worker + array args so loky memmaps X_bin once, not cloudpickle per task
         from joblib import Parallel, delayed
         results = Parallel(n_jobs=args.n_jobs, backend='loky', verbose=5)(
-            delayed(_ksweep_unit)(s, tr, te, k, *unit_args) for (s, tr, te, k) in jobs)
+            delayed(_split_unit)(s, tr, te, *ua) for s, (tr, te) in enumerate(splits))
+
     metric_rows = [r for u in results for r in u['metrics']]
     coef_rows = [r for u in results for r in u['coefs']]
     trace_rows = [r for u in results for r in u['trace']]
@@ -164,9 +173,9 @@ def main():
 
     suffix = (f'fico_{args.qsrc}_ksweep' + ('_sent' if args.sentinel_nan else '')
               + ('_smoke' if args.smoke else ''))
-    config = {**vars(args), 'k_grid': args.k_grid, 'data': str(DATA),
-              'n': int(n), 'p_orig': int(p_orig), 'mu_scale': mu_scale,
-              'mu_grid_rel': (mu_grid / (mu_scale or 1.0)).tolist()}
+    config = {**vars(args), 'k_grid': args.k_grid, 'data': str(DATA), 'n': int(n),
+              'p_orig': int(p_orig), 'discovery_n': int(len(disc_idx)),
+              'eval_pool_n': int(len(pool_idx)), 'leakage_free': True}
     output_dir = new_run_dir(REPO_ROOT / 'results' / 'causal_prior' / 'fico_ksweep' / suffix,
                              config)
     (pd.DataFrame({'feature': names, 'q': q_orig})
@@ -174,24 +183,13 @@ def main():
      .to_csv(output_dir / 'q.csv', index=False))
     df_splits.to_csv(output_dir / 'splits.csv', index=False)
     df_agg.to_csv(output_dir / 'ksweep.csv', index=False)
-
-    # the fitted scorecards: one row per nonzero coefficient, per split/k/arm
-    df_coef = pd.DataFrame(coef_rows)
-    if not df_coef.empty:
-        df_coef['feature'] = df_coef['col'].map(lambda j: bin_names[j])
-        df_coef = df_coef[['split', 'k', 'arm', 'feature', 'col', 'coef']]
-    df_coef.to_csv(output_dir / 'coefficients.csv', index=False)
-
-    # the causal arm's mu-selection trace: held-out cv metrics over the mu grid
-    df_trace = pd.DataFrame(trace_rows)
-    df_trace['mu_rel'] = mu_grid[df_trace['mu_index'].to_numpy()] / (mu_scale or 1.0)
-    df_trace.to_csv(output_dir / 'cv_trace.csv', index=False)
-
+    pd.DataFrame(coef_rows).to_csv(output_dir / 'coefficients.csv', index=False)
+    pd.DataFrame(trace_rows).to_csv(output_dir / 'cv_trace.csv', index=False)
     plot_curve(df_agg, args.qsrc, output_dir / 'parity_curve.png')
 
     print(df_agg[['k', 'arm', 'auc_mean', 'auc_std', 'nfeat_mean']].to_string(index=False),
           flush=True)
-    print(f'Done. Results + figure in {output_dir}/', flush=True)
+    print(f'Done (leakage-free). Results + figure in {output_dir}/', flush=True)
 
 
 if __name__ == '__main__':

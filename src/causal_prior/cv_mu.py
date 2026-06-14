@@ -124,7 +124,9 @@ def cv_pick_mu(X: np.ndarray, y: np.ndarray, K: int,
                     pass
 
     mean_losses = np.nanmean(losses, axis=1)
-    mean_aucs = np.nanmean(aucs, axis=1)
+    with warnings.catch_warnings():  # a fully single-class mu column is all-nan; mean is nan, not an error
+        warnings.simplefilter('ignore', RuntimeWarning)
+        mean_aucs = np.nanmean(aucs, axis=1)
     stabilities = np.array([_mean_pairwise_jaccard(s) for s in supports_per_mu])
 
     if criterion == 'log_loss':

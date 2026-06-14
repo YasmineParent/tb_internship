@@ -1,11 +1,12 @@
 """FICO HELOC parity: causal-prior FasterRisk vs vanilla.
 
 No causal ground truth here, so no support-recovery claim; the bar is parity:
-causal AUC within noise of vanilla at matched sparsity. Self-contained from one
-raw CSV: causal-discovery stability on the original (continuous) features -> q;
-quantile-binarize each feature into indicator columns (q propagated to the
-children); vanilla (mu=0) vs causal (mu by inner-CV log-loss) at matched K over
-the outer splits. Writes q, per-split metrics, and the parity table to results/.
+causal AUC within noise of vanilla at matched sparsity. Leakage-free: q is
+discovered once on a held-out discovery set (disjoint from all eval rows), and
+per split the quantile-binarizer and mu scale are fit on train rows only and
+applied to test. vanilla (mu=0) vs causal (mu by inner-CV log-loss) at matched K
+over the outer splits. Writes q, per-split metrics, and the parity table to
+results/. (For the test-AUC-vs-k curve use fico_ksweep.py.)
 
 q source (--qsrc): pc/ges are Gaussian (pcalg, Fisher-Z / Gaussian-BIC); pc_cg/
 ges_cg are conditional-Gaussian (bnlearn mi-cg / bic-cg), appropriate for FICO's
@@ -36,7 +37,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from sklearn.metrics import brier_score_loss, roc_auc_score
-from sklearn.model_selection import StratifiedShuffleSplit
+from sklearn.model_selection import StratifiedShuffleSplit, train_test_split
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO_ROOT))
@@ -60,6 +61,8 @@ def parse_args():
     p.add_argument('--k', type=int, default=10, help='matched sparsity for both arms')
     p.add_argument('--splits', type=int, default=10, help='outer train/test splits')
     p.add_argument('--test_size', type=float, default=0.3)
+    p.add_argument('--discovery-frac', type=float, default=0.3,
+                   help='fraction held out as the q-discovery set (disjoint from eval)')
     p.add_argument('--n_cv', type=int, default=5, help='inner CV folds for mu selection')
     p.add_argument('--b', type=int, default=100, help='discovery stability subsamples')
     p.add_argument('--n_thresholds', type=int, default=4,
@@ -105,25 +108,40 @@ def load_features(df, sentinel_nan):
     return np.column_stack(cols), out_names
 
 
-def binarize(X_orig, names, n_thresholds):
-    """Threshold each non-binary feature at interior quantiles into `<= t` indicator
-    columns; pass already-binary columns (e.g. the missingness flags) through
-    unchanged. Returns (X_bin, col_names, parent_idx) where parent_idx[c] is the
-    index into `names` of the original feature column c was derived from."""
+def fit_binarizer(X_orig, names, n_thresholds):
+    """Fit binarization thresholds on the given rows (use train-only rows to avoid
+    leakage). Returns (spec, col_names, parent_idx): spec is a list of (j, t) per
+    output column, t=None for a passed-through already-binary column or a threshold
+    for an `x_j <= t` indicator; parent_idx[c] is the index into `names` of the
+    original feature column c was derived from. Transform with apply_binarizer."""
     qlevels = np.linspace(0.0, 1.0, n_thresholds + 2)[1:-1]
-    cols, col_names, parent = [], [], []
+    spec, col_names, parent = [], [], []
     for j, name in enumerate(names):
         x = X_orig[:, j]
         if set(np.unique(x).tolist()) <= {0.0, 1.0}:
-            cols.append(x)
+            spec.append((j, None))
             col_names.append(name)
             parent.append(j)
             continue
         for t in np.unique(np.quantile(x, qlevels)):
-            cols.append((x <= t).astype(float))
+            spec.append((j, float(t)))
             col_names.append(f'{name}_le_{t:g}')
             parent.append(j)
-    return np.column_stack(cols), col_names, np.asarray(parent, dtype=int)
+    return spec, col_names, np.asarray(parent, dtype=int)
+
+
+def apply_binarizer(X_orig, spec):
+    """Transform original features into the binarized matrix using a fitted spec."""
+    cols = [X_orig[:, j] if t is None else (X_orig[:, j] <= t).astype(float)
+            for j, t in spec]
+    return np.column_stack(cols)
+
+
+def binarize(X_orig, names, n_thresholds):
+    """Convenience wrapper: fit thresholds and transform on the same rows. For a
+    leakage-free protocol fit on train rows and apply to test rows separately."""
+    spec, col_names, parent = fit_binarizer(X_orig, names, n_thresholds)
+    return apply_binarizer(X_orig, spec), col_names, parent
 
 
 def ece(y01, p, n_bins=10):
@@ -190,32 +208,34 @@ def main():
     print(f'FICO: n={n}  features={p_orig}{extra}  '
           f'positive ({POS_LABEL})={(y == 1).mean():.0%}', flush=True)
 
-    print(f'{args.qsrc.upper()} subsample-stability (B={args.b}) on original features...',
-          flush=True)
-    q_orig = discover_q(args.qsrc, X_orig, y.astype(float), args.b, args.seed)
-
-    X_bin, _, parent = binarize(X_orig, names, args.n_thresholds)
-    q_bin = q_orig[parent]
-    print(f'binarized: {X_bin.shape[1]} columns; '
-          f'q_bin nonzero on {int((q_bin > 0).sum())} columns', flush=True)
+    # leakage-free: discover q once on a held-out set disjoint from all eval rows
+    pool_idx, disc_idx = train_test_split(
+        np.arange(n), test_size=args.discovery_frac,
+        stratify=(y > 0), random_state=args.seed)
+    print(f'discovery n={len(disc_idx)} (held out), eval pool n={len(pool_idx)}', flush=True)
+    print(f'{args.qsrc.upper()} discovery (B={args.b}) on held-out set...', flush=True)
+    q_orig = discover_q(args.qsrc, X_orig[disc_idx], y[disc_idx].astype(float), args.b, args.seed)
 
     FasterRisk = _import_fasterrisk()
-    mu_scale = float(np.median(0.5 * np.abs(X_bin.T @ y)))
-    mu_rel = np.logspace(-2, 1, 3 if args.smoke else 12)
-    mu_grid = np.concatenate([[0.0], mu_rel]) * mu_scale
-
     sss = StratifiedShuffleSplit(n_splits=args.splits, test_size=args.test_size,
                                  random_state=args.seed)
     records = []
-    for s, (tr, te) in enumerate(sss.split(X_bin, (y > 0).astype(int))):
+    for s, (trp, tep) in enumerate(sss.split(pool_idx, (y[pool_idx] > 0).astype(int))):
+        tr, te = pool_idx[trp], pool_idx[tep]
+        # binarizer + mu scale fit on train rows only, applied to test
+        spec, _, parent = fit_binarizer(X_orig[tr], names, args.n_thresholds)
+        q_bin = q_orig[parent]
+        Xtr, Xte = apply_binarizer(X_orig[tr], spec), apply_binarizer(X_orig[te], spec)
+        ytr, yte = y[tr], y[te]
+        mu_scale = float(np.median(0.5 * np.abs(Xtr.T @ ytr)))
+        mu_grid = np.concatenate([[0.0], np.logspace(-2, 1, 3 if args.smoke else 12)]) * mu_scale
         with warnings.catch_warnings():
             warnings.simplefilter('ignore')
-            van = fit_eval(FasterRisk, X_bin[tr], y[tr], X_bin[te], y[te], 0.0, None, args.k)
-            cv = cv_pick_mu(X_bin[tr], y[tr], K=args.k, mu_grid=mu_grid, q=q_bin,
+            van = fit_eval(FasterRisk, Xtr, ytr, Xte, yte, 0.0, None, args.k)
+            cv = cv_pick_mu(Xtr, ytr, K=args.k, mu_grid=mu_grid, q=q_bin,
                             n_splits=args.n_cv, criterion='log_loss',
                             rng=np.random.default_rng(args.seed + s))
-            cau = fit_eval(FasterRisk, X_bin[tr], y[tr], X_bin[te], y[te],
-                           cv.mu_star, q_bin, args.k)
+            cau = fit_eval(FasterRisk, Xtr, ytr, Xte, yte, cv.mu_star, q_bin, args.k)
         mu_hat_rel = cv.mu_star / mu_scale if mu_scale else 0.0
         records.append({'split': s, 'arm': 'vanilla', 'mu_hat_rel': 0.0, **van})
         records.append({'split': s, 'arm': 'causal', 'mu_hat_rel': mu_hat_rel, **cau})
@@ -230,7 +250,8 @@ def main():
     suffix = (f'fico_{args.qsrc}_k{args.k}' + ('_sent' if args.sentinel_nan else '')
               + ('_smoke' if args.smoke else ''))
     config = {**vars(args), 'data': str(DATA), 'target': TARGET, 'pos_label': POS_LABEL,
-              'n': int(n), 'p_orig': int(p_orig), 'mu_scale': mu_scale,
+              'n': int(n), 'p_orig': int(p_orig), 'discovery_n': int(len(disc_idx)),
+              'eval_pool_n': int(len(pool_idx)), 'leakage_free': True,
               'mu_hat_rel_mean': float(mu_hats.mean()),
               'mu_hat_nonzero_splits': int((mu_hats > 0).sum())}
     output_dir = new_run_dir(REPO_ROOT / 'results' / 'causal_prior' / 'fico_parity' / suffix, config)
@@ -244,7 +265,7 @@ def main():
     print(df_parity.to_string(), flush=True)
     print(f'mu_hat_rel mean {mu_hats.mean():.3f}, '
           f'nonzero in {int((mu_hats > 0).sum())}/{args.splits} splits', flush=True)
-    print(f'Done. Results in {output_dir}/', flush=True)
+    print(f'Done (leakage-free). Results in {output_dir}/', flush=True)
 
 
 if __name__ == '__main__':
