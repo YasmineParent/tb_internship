@@ -1,0 +1,22 @@
+{
+  "qsrc": "ges_cg",
+  "n_grid": [
+    150,
+    300,
+    600,
+    1200
+  ],
+  "reps": 15,
+  "k": 10,
+  "discovery_frac": 0.3,
+  "test_n": 2500,
+  "n_mu": 6,
+  "mu_rel": -1.0,
+  "b": 100,
+  "n_thresholds": 4,
+  "n_jobs": 8,
+  "sentinel_nan": true,
+  "seed": 0,
+  "smoke": false,
+  "leakage_free": true
+}
