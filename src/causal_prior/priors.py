@@ -282,6 +282,40 @@ def bnlearn_stability_q(X: np.ndarray, y: np.ndarray, method: str = 'mi-cg',
     return np.sum(adjacencies, axis=0) / B
 
 
+def bnlearn_mb(X: np.ndarray, y: np.ndarray, method: str = 'iamb',
+               test: str = 'mi-cg', alpha: float = 0.05) -> list[int]:
+    """Markov blanket of the target via bnlearn's constraint-based MB learner with a
+    conditional-Gaussian CI test (mi-cg), i.e. a causal-feature-selection baseline
+    (IAMB-style) that uses the *correct* mixed-data test for continuous features and
+    a binary target. Returns sorted original-feature indices; single run, not
+    stability-aggregated."""
+    y01 = (np.asarray(y) > 0).astype(int)
+    p = X.shape[1]
+    disc_cols = [j + 1 for j in range(p)
+                 if set(np.unique(X[:, j]).tolist()) <= {0.0, 1.0}]
+    _init_R_bnlearn()
+    import rpy2.robjects as ro
+    from rpy2.robjects.conversion import localconverter
+    with localconverter(_R_CONVERTER):
+        ro.globalenv['Xmat'] = X
+        ro.globalenv['yvec'] = y01.astype(float)
+        ro.globalenv['disc'] = np.asarray(disc_cols, dtype=float)
+    ro.r('''
+        df <- as.data.frame(Xmat)
+        names(df) <- paste0("x", seq_len(ncol(df)) - 1L)
+        for (j in as.integer(disc)) df[[j]] <- as.factor(df[[j]])
+        df[["y"]] <- as.factor(yvec)
+    ''')
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore')
+        ro.r(f'mb <- tryCatch(learn.mb(df, "y", method="{method}", test="{test}", '
+             f'alpha={alpha}), error=function(e) character(0))')
+    with localconverter(_R_CONVERTER):
+        mb = list(ro.r('mb'))
+    return sorted(int(nm[1:]) for nm in mb
+                  if isinstance(nm, str) and nm.startswith('x') and nm[1:].isdigit())
+
+
 # full recovered cpdags: whole graph, not just adjacency to y.
 # the *_stability_q sources above collapse each run to a length-p adjacency-to-y
 # vector (all q needs). for orientation scoring and the consensus-graph picture
