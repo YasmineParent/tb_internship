@@ -6,4 +6,7 @@ __pycache__/
 .DS_Store
 .claude/
 *.log
-notes/fasterrisk_modification_plan.md
+# notes: keep only the two public docs, ignore all other working notes
+notes/*
+!notes/pipeline.ipynb
+!notes/perturbation_theorem.md
