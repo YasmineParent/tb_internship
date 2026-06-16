@@ -26,6 +26,7 @@ dependencies = [
     "tabulate>=0.10.0",
     "torch>=2.0.0",
     "fasterrisk",
+    "folktables>=0.0.12",
 ]
 
 [tool.uv]

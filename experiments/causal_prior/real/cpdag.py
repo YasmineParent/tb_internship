@@ -33,12 +33,12 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from experiments._io import new_run_dir  # noqa: E402
 from src.causal_prior.priors import edge_stability_matrix  # noqa: E402
-from experiments.causal_prior.real.fico_parity import (  # noqa: E402
-    DATA, TARGET, POS_LABEL, load_features)
+from experiments.causal_prior.real.datasets import load_dataset  # noqa: E402
 
 
 def parse_args():
     p = argparse.ArgumentParser()
+    p.add_argument('--dataset', default='fico')
     p.add_argument('--method', choices=['pc', 'ges'], default='ges')
     p.add_argument('--b', type=int, default=100, help='subsamples for edge stability')
     p.add_argument('--skeleton-thresh', type=float, default=0.5,
@@ -111,14 +111,9 @@ def plot_cpdag(edges, names, target_name, method, out_png):
 
 def main():
     args = parse_args()
-    if not DATA.exists():
-        sys.exit(f'FICO CSV not found at {DATA}')
-
-    df = pd.read_csv(DATA)
-    y = np.where(df[TARGET].astype(str).str.strip() == POS_LABEL, 1, -1).astype(int)
-    X_orig, names = load_features(df, args.sentinel_nan)
-    node_names = names + [TARGET]
-    print(f'FICO: n={X_orig.shape[0]}  features={X_orig.shape[1]}  '
+    X_orig, names, y = load_dataset(args.dataset, args)
+    node_names = list(names) + ['target']
+    print(f'{args.dataset}: n={X_orig.shape[0]}  features={X_orig.shape[1]}  '
           f'edge-stability {args.method.upper()} B={args.b}...', flush=True)
 
     freq = edge_stability_matrix(
@@ -130,14 +125,14 @@ def main():
     print(f'{len(edges)} edges above skeleton-thresh {args.skeleton_thresh} '
           f'({n_dir} oriented, {len(edges) - n_dir} undirected)', flush=True)
 
-    suffix = f'fico_{args.method}' + ('_sent' if args.sentinel_nan else '')
+    suffix = f'{args.dataset}_{args.method}' + ('_sent' if args.sentinel_nan else '')
     out_dir = new_run_dir(
         REPO_ROOT / 'results' / 'causal_prior' / 'cpdag' / suffix, vars(args))
     pd.DataFrame(freq, index=node_names, columns=node_names).to_csv(
         out_dir / 'edge_stability.csv')
     pd.DataFrame(edges, columns=['from', 'to', 'stability', 'directed']).to_csv(
         out_dir / 'consensus_edges.csv', index=False)
-    plot_cpdag(edges, node_names, TARGET, args.method, out_dir / 'cpdag.png')
+    plot_cpdag(edges, node_names, 'target', args.method, out_dir / 'cpdag.png')
 
     print(f'Done. Graph + figure in {out_dir}/', flush=True)
 

@@ -30,14 +30,15 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO_ROOT))
 
 from src.causal_prior.cv_mu import cv_pick_mu  # noqa: E402
+from src.causal_prior.binarize import fit_binarizer, apply_binarizer  # noqa: E402
+from src.causal_prior.scorecard import discover_q, _import_fasterrisk  # noqa: E402
 from experiments._io import new_run_dir  # noqa: E402
-from experiments.causal_prior.real.fico_parity import (  # noqa: E402
-    DATA, TARGET, POS_LABEL, load_features, fit_binarizer, apply_binarizer,
-    discover_q, _import_fasterrisk)
+from experiments.causal_prior.real.datasets import load_dataset  # noqa: E402
 
 
 def parse_args():
     ap = argparse.ArgumentParser()
+    ap.add_argument('--dataset', default='fico')
     ap.add_argument('--qsrc', choices=['pc', 'ges', 'pc_cg', 'ges_cg'], default='ges_cg')
     ap.add_argument('--k', type=int, default=10)
     ap.add_argument('--n_cv', type=int, default=5)
@@ -89,7 +90,7 @@ def plot_rashomon(pool, auc_floor, out_png):
                label=f'matched-accuracy floor ({auc_floor:.3f})')
     ax.set_xlabel('support q-mass (mean causal evidence of selected features)')
     ax.set_ylabel('test AUC')
-    ax.set_title('FICO Rashomon pool: prior steers supports toward causal evidence')
+    ax.set_title('Rashomon pool: prior steers supports toward causal evidence')
     ax.legend()
     fig.tight_layout()
     fig.savefig(out_png, dpi=160)
@@ -98,12 +99,7 @@ def plot_rashomon(pool, auc_floor, out_png):
 
 def main():
     args = parse_args()
-    if not DATA.exists():
-        sys.exit(f'FICO CSV not found at {DATA}')
-
-    df = pd.read_csv(DATA)
-    y = np.where(df[TARGET].astype(str).str.strip() == POS_LABEL, 1, -1).astype(int)
-    X_orig, names = load_features(df, args.sentinel_nan)
+    X_orig, names, y = load_dataset(args.dataset, args)
     n = len(y)
 
     # three disjoint sets: discovery (q), train (fit pools), test (eval auc)
@@ -113,7 +109,7 @@ def main():
                                       stratify=(y[rest] > 0), random_state=args.seed)
     if args.train_n and args.train_n < len(tr_idx):
         tr_idx = np.random.default_rng(args.seed).choice(tr_idx, args.train_n, replace=False)
-    print(f'FICO n={n}: discovery={len(disc_idx)} (held out), train={len(tr_idx)}, '
+    print(f'{args.dataset} n={n}: discovery={len(disc_idx)} (held out), train={len(tr_idx)}, '
           f'test={len(te_idx)}', flush=True)
 
     print(f'{args.qsrc.upper()} discovery (B={args.b}) on held-out set...', flush=True)
@@ -156,7 +152,7 @@ def main():
     config = {**vars(args), 'mu_hat_rel': mu_hat_rel, 'auc_floor': float(auc_floor),
               'discovery_n': int(len(disc_idx)), 'train_n': int(len(tr_idx)),
               'test_n': int(len(te_idx)), 'leakage_free': True}
-    out = new_run_dir(REPO_ROOT / 'results' / 'causal_prior' / 'rashomon' / f'fico_k{args.k}',
+    out = new_run_dir(REPO_ROOT / 'results' / 'causal_prior' / 'rashomon' / f'{args.dataset}_k{args.k}',
                       config)
     pool.to_csv(out / 'pool.csv', index=False)
     summ_full.to_csv(out / 'summary_full_pool.csv')

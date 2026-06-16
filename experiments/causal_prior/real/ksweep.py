@@ -30,14 +30,15 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO_ROOT))
 
 from src.causal_prior.cv_mu import cv_pick_mu  # noqa: E402
+from src.causal_prior.binarize import fit_binarizer, apply_binarizer  # noqa: E402
+from src.causal_prior.scorecard import discover_q, fit_eval, _import_fasterrisk  # noqa: E402
 from experiments._io import new_run_dir  # noqa: E402
-from experiments.causal_prior.real.fico_parity import (  # noqa: E402
-    DATA, TARGET, POS_LABEL, load_features, fit_binarizer, apply_binarizer,
-    discover_q, fit_eval, _import_fasterrisk)
+from experiments.causal_prior.real.datasets import load_dataset  # noqa: E402
 
 
 def parse_args():
     p = argparse.ArgumentParser()
+    p.add_argument('--dataset', default='fico')
     p.add_argument('--qsrc', choices=['pc', 'ges', 'pc_cg', 'ges_cg'], default='ges_cg')
     p.add_argument('--k-grid', default='2,4,6,8,10',
                    help='comma-separated sparsities to sweep')
@@ -119,7 +120,7 @@ def plot_curve(df_agg, qsrc, out_png):
                     capsize=3, color=color, label=arm)
     ax.set_xlabel('model size (k)')
     ax.set_ylabel('test AUC')
-    ax.set_title(f'FICO parity curve ({qsrc}, leakage-free q)')
+    ax.set_title(f'parity curve ({qsrc}, leakage-free q)')
     ax.legend()
     fig.tight_layout()
     fig.savefig(out_png, dpi=160)
@@ -128,19 +129,14 @@ def plot_curve(df_agg, qsrc, out_png):
 
 def main():
     args = parse_args()
-    if not DATA.exists():
-        sys.exit(f'FICO CSV not found at {DATA}')
-
-    df = pd.read_csv(DATA)
-    y = np.where(df[TARGET].astype(str).str.strip() == POS_LABEL, 1, -1).astype(int)
-    X_orig, names = load_features(df, args.sentinel_nan)
+    X_orig, names, y = load_dataset(args.dataset, args)
     n, p_orig = X_orig.shape
 
     # hold out a disjoint discovery set; q never sees the eval rows
     pool_idx, disc_idx = train_test_split(
         np.arange(n), test_size=args.discovery_frac,
         stratify=(y > 0), random_state=args.seed)
-    print(f'FICO: n={n}  features={p_orig}  positive ({POS_LABEL})={(y == 1).mean():.0%}; '
+    print(f'{args.dataset}: n={n}  features={p_orig}  positive={(y > 0).mean():.0%}; '
           f'discovery set n={len(disc_idx)} (held out), eval pool n={len(pool_idx)}', flush=True)
 
     print(f'{args.qsrc.upper()} discovery (B={args.b}) on held-out set...', flush=True)
@@ -171,12 +167,12 @@ def main():
               .agg(['mean', 'std']).reset_index())
     df_agg.columns = ['k', 'arm'] + [f'{m}_{s}' for m in metrics for s in ('mean', 'std')]
 
-    suffix = (f'fico_{args.qsrc}_ksweep' + ('_sent' if args.sentinel_nan else '')
+    suffix = (f'{args.dataset}_{args.qsrc}_ksweep' + ('_sent' if args.sentinel_nan else '')
               + ('_smoke' if args.smoke else ''))
-    config = {**vars(args), 'k_grid': args.k_grid, 'data': str(DATA), 'n': int(n),
+    config = {**vars(args), 'k_grid': args.k_grid, 'n': int(n),
               'p_orig': int(p_orig), 'discovery_n': int(len(disc_idx)),
               'eval_pool_n': int(len(pool_idx)), 'leakage_free': True}
-    output_dir = new_run_dir(REPO_ROOT / 'results' / 'causal_prior' / 'fico_ksweep' / suffix,
+    output_dir = new_run_dir(REPO_ROOT / 'results' / 'causal_prior' / 'ksweep' / suffix,
                              config)
     (pd.DataFrame({'feature': names, 'q': q_orig})
      .sort_values('q', ascending=False)

@@ -1,0 +1,303 @@
+"""Causal-prior FasterRisk vs causal feature selection (CFS), on any benchmark.
+
+Unifies the FICO scarcity sweep and the heart comparison: one runner, `--dataset`.
+Every arm RE-SELECTS per resample (the honest stability measure; a fixed cfs
+blanket would be trivially stable), fits a scorecard at matched k, and is scored on
+a held-out split. Reports test AUC (with paired significance), selection stability
+(mean pairwise Jaccard and the Nogueira chance-corrected index), and the soft-vs-
+hard 2x2 ablation.
+
+Arms (2x2 of source x use, plus vanilla and cfs_cg):
+  vanilla     mu=0
+  causal      soft prior, q from ges_cg (conditional-gaussian)        [ours]
+  iamb_soft   soft prior, q from the same fisher-z search as cfs_iamb
+  cfs_iamb    hard pre-selection, pyCausalFS fisher-z (invalid on mixed data)
+  cfs_hiton_mb hard, pyCausalFS fisher-z
+  cfs_cg      hard, bnlearn mi-cg (the valid mixed-data causal selector)
+
+q-mode (auto): with --n-grid (scarcity sweep, e.g. FICO) q is discovered ONCE on a
+held-out set, disjoint from the eval pool and a fixed test set (leakage-free §6.2
+protocol). Without --n-grid (small data, e.g. heart) q is re-discovered per
+resample on each split's train. Override with --q-mode.
+
+usage:
+    python experiments/causal_prior/real/cfs.py --dataset fico --sentinel-nan --n-grid 150,300,600,1200
+    python experiments/causal_prior/real/cfs.py --dataset heart --reps 25
+    python experiments/causal_prior/real/cfs.py --dataset heart --smoke
+"""
+from __future__ import annotations
+
+import argparse
+import sys
+import warnings
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+from sklearn.metrics import roc_auc_score
+from sklearn.model_selection import StratifiedShuffleSplit, train_test_split
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(REPO_ROOT))
+
+from src.causal_prior.cv_mu import cv_pick_mu  # noqa: E402
+from src.causal_prior.priors import bnlearn_mb  # noqa: E402
+from src.causal_prior.binarize import fit_binarizer, apply_binarizer  # noqa: E402
+from src.causal_prior.scorecard import discover_q, _import_fasterrisk  # noqa: E402
+from src.causal_prior.stability import _stability, _nogueira  # noqa: E402
+from src.causal_prior.baselines import _cfs_fisherz, iamb_soft_q  # noqa: E402
+from experiments._io import new_run_dir  # noqa: E402
+from experiments.causal_prior.real.datasets import load_dataset  # noqa: E402
+
+ARMS = ['vanilla', 'causal', 'iamb_soft', 'cfs_iamb', 'cfs_hiton_mb', 'cfs_cg']
+LABELS = {'vanilla': 'vanilla', 'causal': 'causal (ges_cg, soft)',
+          'iamb_soft': 'iamb soft (fisher-z, soft)', 'cfs_iamb': 'cfs iamb (fisher-z, hard)',
+          'cfs_hiton_mb': 'cfs hiton-mb (hard)', 'cfs_cg': 'cfs cg (valid mi-cg)'}
+COLORS = {'vanilla': 'C0', 'causal': 'C1', 'iamb_soft': 'C4',
+          'cfs_iamb': '0.55', 'cfs_hiton_mb': '0.7', 'cfs_cg': 'C2'}
+SOLID = ['vanilla', 'causal', 'cfs_cg']  # headline tier drawn solid; rest dashed
+
+
+def _blankets(Xs, ys, alpha):
+    """cfs markov blankets, re-selected on this (sub)sample at the original-feature level."""
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore')
+        return {'cfs_iamb': _cfs_fisherz('iamb', Xs, ys, alpha),
+                'cfs_hiton_mb': _cfs_fisherz('hiton_mb', Xs, ys, alpha),
+                'cfs_cg': bnlearn_mb(Xs, ys, method='iamb', test='mi-cg', alpha=alpha)}
+
+
+def _eval_split(Xtr_o, ytr, Xte_o, yte01, q_orig, qi_orig, mbs, names, k,
+                n_thresholds, n_mu, mu_rel, n_cv, seed_tuple):
+    """binarize train-only, fit every arm, score on the test rows. returns auc +
+    original-feature support per arm (and the causal mu_hat_rel)."""
+    FR = _import_fasterrisk()
+    spec, _, parent = fit_binarizer(Xtr_o, names.tolist(), n_thresholds)
+    Xtr, Xte = apply_binarizer(Xtr_o, spec), apply_binarizer(Xte_o, spec)
+    all_cols = np.arange(Xtr.shape[1])
+    mu_scale = float(np.median(0.5 * np.abs(Xtr.T @ ytr)))
+    mu_grid = np.concatenate([[0.0], np.logspace(-2, 1, n_mu)]) * mu_scale
+
+    def supp(cols, betas):
+        nz = np.nonzero(np.asarray(betas))[0]
+        return frozenset(names[parent[cols[nz]]].tolist())
+
+    def auc(fr, cols):
+        return float(roc_auc_score(yte01, np.clip(fr.predict_proba(Xte[:, cols]), 1e-7, 1 - 1e-7)))
+
+    def soft_arm(qv, tag):
+        qb = qv[parent]
+        if mu_rel >= 0:
+            mu = mu_rel * mu_scale
+        else:
+            mu = cv_pick_mu(Xtr, ytr, K=k, mu_grid=mu_grid, q=qb, n_splits=n_cv,
+                            criterion='log_loss',
+                            rng=np.random.default_rng(seed_tuple + (tag,))).mu_star
+        fr = FR(k=k, mu=float(mu), freq=qb.astype(float)); fr.fit(Xtr, ytr)
+        return auc(fr, all_cols), supp(all_cols, fr.betas_[0]), mu / (mu_scale or 1.0)
+
+    rec = {}
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore')
+        van = FR(k=k, mu=0.0, freq=None); van.fit(Xtr, ytr)
+        rec['auc_vanilla'], rec['supp_vanilla'] = auc(van, all_cols), supp(all_cols, van.betas_[0])
+        a, s, mh = soft_arm(q_orig, 1)
+        rec['auc_causal'], rec['supp_causal'], rec['mu_hat_rel'] = a, s, mh
+        a, s, _ = soft_arm(qi_orig, 2)
+        rec['auc_iamb_soft'], rec['supp_iamb_soft'] = a, s
+        for arm, mb in mbs.items():
+            cols = all_cols[np.isin(parent, mb)] if mb else all_cols[:0]
+            if len(cols) == 0:
+                rec[f'auc_{arm}'], rec[f'supp_{arm}'] = float('nan'), frozenset()
+                continue
+            fr = FR(k=k, mu=0.0, freq=None); fr.fit(Xtr[:, cols], ytr)
+            rec[f'auc_{arm}'], rec[f'supp_{arm}'] = auc(fr, cols), supp(cols, fr.betas_[0])
+    return rec
+
+
+def _unit_heldout(n, r, train_pool, test_abs, X_orig, y, q_orig, qi_orig, names, args):
+    """one resample at size n: q fixed (discovered once on the held-out set), cfs
+    blankets re-selected on the subsample, fixed test set."""
+    sub = np.random.default_rng((args.seed, n, r)).choice(train_pool, size=n, replace=False)
+    Xs, ys = X_orig[sub], y[sub]
+    mbs = _blankets(Xs, ys, args.alpha)
+    rec = _eval_split(Xs, ys, X_orig[test_abs], (y[test_abs] > 0).astype(int),
+                      q_orig, qi_orig, mbs, names, args.k, args.n_thresholds, args.n_mu,
+                      args.mu_rel, args.n_cv, (args.seed, n, r))
+    rec['n'], rec['rep'] = n, r
+    return rec
+
+
+def _unit_resample(n, r, X_orig, y, names, args):
+    """one resample: a fresh stratified split; q, iamb_soft q and cfs blankets all
+    re-discovered on this split's train (honest for small data)."""
+    sss = StratifiedShuffleSplit(n_splits=1, test_size=args.test_frac, random_state=args.seed + r)
+    (tr, te), = sss.split(X_orig, (y > 0).astype(int))
+    if n is not None and n < len(tr):
+        tr = np.random.default_rng((args.seed, n, r)).choice(tr, size=n, replace=False)
+    Xtr_o, ytr = X_orig[tr], y[tr]
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore')
+        q = discover_q(args.qsrc, Xtr_o, ytr.astype(float), args.b, args.seed)
+        qi = iamb_soft_q(Xtr_o, ytr, args.alpha, args.b, np.random.default_rng((args.seed, n or 0, r, 9)))
+        mbs = _blankets(Xtr_o, ytr, args.alpha)
+    rec = _eval_split(Xtr_o, ytr, X_orig[te], (y[te] > 0).astype(int), q, qi, mbs, names,
+                      args.k, args.n_thresholds, args.n_mu, args.mu_rel, args.n_cv,
+                      (args.seed, n or 0, r))
+    rec['n'], rec['rep'] = (n if n else len(tr)), r
+    return rec
+
+
+def _summary(res, names):
+    d = len(names)
+    ns = sorted({x['n'] for x in res})
+    rows = []
+    for n in ns:
+        rn = [x for x in res if x['n'] == n]
+        row = {'n': n, 'mu_nonzero_frac': float(np.mean([x['mu_hat_rel'] > 0 for x in rn]))}
+        for arm in ARMS:
+            supps = [x[f'supp_{arm}'] for x in rn]
+            row[f'auc_{arm}'] = float(np.nanmean([x[f'auc_{arm}'] for x in rn]))
+            row[f'stab_{arm}'] = _stability(supps)
+            row[f'nog_{arm}'] = _nogueira(supps, d)
+        rows.append(row)
+    return pd.DataFrame(rows)
+
+
+def _contrasts(res):
+    """paired causal-vs-arm and the 2x2 soft-vs-hard contrasts over shared resamples."""
+    from scipy import stats
+    long = pd.DataFrame([{f'auc_{a}': x[f'auc_{a}'] for a in ARMS} for x in res])
+
+    def paired(a, b):
+        diff = (long[f'auc_{a}'] - long[f'auc_{b}']).to_numpy()
+        diff = diff[~np.isnan(diff)]
+        p = stats.wilcoxon(diff).pvalue if np.any(diff) else float('nan')
+        return float(np.mean(diff)), p
+
+    causal = {a: paired('causal', a) for a in ARMS if a != 'causal'}
+    ablation = {'iamb_soft - cfs_iamb (soft vs hard, fisher-z)': paired('iamb_soft', 'cfs_iamb'),
+                'causal - cfs_cg (soft vs hard, cg)': paired('causal', 'cfs_cg'),
+                'causal - iamb_soft (cg vs fisher-z, both soft)': paired('causal', 'iamb_soft')}
+    return long, causal, ablation
+
+
+def plot_cfs(summ, out_png, dataset):
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    if len(summ) > 1:  # scarcity sweep: stability + auc vs n
+        fig, axes = plt.subplots(1, 2, figsize=(11, 4.2))
+        for arm in ARMS:
+            st = dict(marker='o', lw=2.2) if arm in SOLID else dict(marker='x', lw=1.2, ls='--', alpha=0.6)
+            axes[0].plot(summ['n'], summ[f'stab_{arm}'], color=COLORS[arm], label=LABELS[arm], **st)
+            axes[1].plot(summ['n'], summ[f'auc_{arm}'], color=COLORS[arm], label=LABELS[arm], **st)
+        axes[0].set(xlabel='train n', ylabel='support stability (Jaccard)',
+                    title=f'{dataset}: scarcity-regime stability', ylim=(0, 1))
+        axes[1].set(xlabel='train n', ylabel='test AUC', title=f'{dataset}: accuracy')
+        for ax in axes:
+            ax.set_xscale('log'); ax.legend(fontsize=8)
+    else:  # single operating point: bars of auc and stability
+        fig, axes = plt.subplots(1, 2, figsize=(11, 4.2))
+        xs = np.arange(len(ARMS))
+        for ax, col, ttl in ((axes[0], 'auc', 'test AUC'), (axes[1], 'nog', 'stability (Nogueira)')):
+            ax.bar(xs, [summ.iloc[0][f'{col}_{a}'] for a in ARMS], color=[COLORS[a] for a in ARMS])
+            ax.set_xticks(xs); ax.set_xticklabels([LABELS[a] for a in ARMS], rotation=30, ha='right', fontsize=8)
+            ax.set_title(f'{dataset}: {ttl}')
+    fig.tight_layout(); fig.savefig(out_png, dpi=160); plt.close(fig)
+
+
+def parse_args():
+    p = argparse.ArgumentParser()
+    p.add_argument('--dataset', default='fico')
+    p.add_argument('--qsrc', default='ges_cg')
+    p.add_argument('--n-grid', default=None, help='scarcity sweep sizes, e.g. 150,300,600,1200')
+    p.add_argument('--q-mode', choices=['auto', 'heldout', 'per-resample'], default='auto')
+    p.add_argument('--reps', type=int, default=20)
+    p.add_argument('--k', type=int, default=10)
+    p.add_argument('--discovery-frac', type=float, default=0.3)
+    p.add_argument('--test-n', type=int, default=2500, help='held-out mode: fixed test size')
+    p.add_argument('--test-frac', type=float, default=0.3, help='per-resample mode: test fraction')
+    p.add_argument('--n-mu', type=int, default=8)
+    p.add_argument('--mu-rel', type=float, default=-1.0, help='fixed relative mu; >=0 skips inner cv')
+    p.add_argument('--b', type=int, default=50)
+    p.add_argument('--alpha', type=float, default=0.05)
+    p.add_argument('--n_cv', type=int, default=5)
+    p.add_argument('--n_thresholds', type=int, default=4)
+    p.add_argument('--n-jobs', type=int, default=1)
+    p.add_argument('--sentinel-nan', action='store_true')
+    p.add_argument('--seed', type=int, default=0)
+    p.add_argument('--smoke', action='store_true')
+    args = p.parse_args()
+    if args.smoke:
+        args.b, args.reps = 10, 4
+        if args.dataset == 'fico' and args.n_grid is None:
+            args.n_grid = '300,600'
+    args.n_grid = [int(x) for x in args.n_grid.split(',')] if args.n_grid else None
+    if args.q_mode == 'auto':
+        args.q_mode = 'heldout' if args.n_grid else 'per-resample'
+    return args
+
+
+def main():
+    args = parse_args()
+    X_orig, names, y = load_dataset(args.dataset, args)
+    print(f'{args.dataset}: n={len(y)}, features={len(names)}, '
+          f'positive={(y > 0).mean():.0%}, q-mode={args.q_mode}', flush=True)
+
+    grid = args.n_grid or [None]
+    if args.q_mode == 'heldout':
+        rest, disc = train_test_split(np.arange(len(y)), test_size=args.discovery_frac,
+                                      stratify=(y > 0), random_state=args.seed)
+        pool, test_abs = train_test_split(rest, test_size=args.test_n,
+                                          stratify=(y[rest] > 0), random_state=args.seed)
+        if max(grid) > len(pool):
+            sys.exit(f'largest n ({max(grid)}) exceeds train pool ({len(pool)})')
+        print(f'held-out discovery={len(disc)}, pool={len(pool)}, test={len(test_abs)}; '
+              f'{args.qsrc} q (B={args.b})...', flush=True)
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore')
+            q_orig = discover_q(args.qsrc, X_orig[disc], y[disc].astype(float), args.b, args.seed)
+            qi_orig = iamb_soft_q(X_orig[disc], y[disc], args.alpha, args.b,
+                                  np.random.default_rng((args.seed, 99)))
+        jobs = [(n, r) for n in grid for r in range(args.reps)]
+        unit = lambda n, r: _unit_heldout(n, r, pool, test_abs, X_orig, y, q_orig, qi_orig, names, args)
+    else:
+        jobs = [(n, r) for n in grid for r in range(args.reps)]
+        unit = lambda n, r: _unit_resample(n, r, X_orig, y, names, args)
+
+    print(f'{len(jobs)} resamples on n_jobs={args.n_jobs}', flush=True)
+    if args.n_jobs == 1:
+        import time
+        res, t0 = [], time.time()
+        for i, (n, r) in enumerate(jobs, 1):
+            res.append(unit(n, r))
+            el = time.time() - t0
+            print(f'  [{i}/{len(jobs)}] n={n} rep={r}  elapsed={el/60:.1f}m  '
+                  f'eta={el/i*(len(jobs)-i)/60:.1f}m', flush=True)
+    else:
+        from joblib import Parallel, delayed
+        res = Parallel(n_jobs=args.n_jobs, backend='loky', verbose=5)(
+            delayed(unit)(n, r) for n, r in jobs)
+
+    summ = _summary(res, names).round(4)
+    long, causal, ablation = _contrasts(res)
+
+    out = new_run_dir(REPO_ROOT / 'results' / 'causal_prior' / 'cfs' / f'{args.dataset}_k{args.k}',
+                      {**vars(args), 'leakage_free': True})
+    summ.to_csv(out / 'summary.csv', index=False)
+    long.to_csv(out / 'resamples.csv', index=False)
+    plot_cfs(summ, out / 'cfs.png', args.dataset)
+
+    print(summ.to_string(index=False), flush=True)
+    print('\npaired causal - arm (mean delta, wilcoxon p):', flush=True)
+    for a, (md, p) in causal.items():
+        print(f'  vs {a:14s} delta={md:+.4f}  p={p:.3f}', flush=True)
+    print('\n2x2 ablation contrasts (mean delta, wilcoxon p):', flush=True)
+    for lab, (md, p) in ablation.items():
+        print(f'  {lab:48s} delta={md:+.4f}  p={p:.3f}', flush=True)
+    print(f'Done. Results in {out}/', flush=True)
+
+
+if __name__ == '__main__':
+    main()

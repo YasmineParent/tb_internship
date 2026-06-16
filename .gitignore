@@ -10,3 +10,7 @@ __pycache__/
 notes/*
 !notes/pipeline.ipynb
 !notes/perturbation_theorem.md
+
+# large downloaded data and vendored, not-on-pypi dependency
+data/real/folktables/
+external/pyCausalFS/
