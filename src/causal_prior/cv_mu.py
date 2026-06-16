@@ -63,7 +63,7 @@ def _mean_pairwise_jaccard(supports: list[list[int]]) -> float:
     return float(np.mean(pairs)) if pairs else 0.0
 
 
-def _import_fasterrisk():
+def import_fasterrisk():
     """Defer FR import; the R-binding warning fires on every fresh worker."""
     with warnings.catch_warnings():
         warnings.simplefilter('ignore')
@@ -93,7 +93,7 @@ def cv_pick_mu(X: np.ndarray, y: np.ndarray, K: int,
     """
     if criterion not in ('log_loss', 'stability'):
         raise ValueError(f"criterion must be 'log_loss' or 'stability', got {criterion!r}")
-    FasterRisk = _import_fasterrisk()
+    FasterRisk = import_fasterrisk()
     if rng is None:
         rng = np.random.default_rng()
 

@@ -410,3 +410,26 @@ def edge_stability_matrix(X: np.ndarray, y_continuous: np.ndarray,
                     else _cpdag_pc_R(data, alpha, m_max))
             acc += (amat != 0).astype(float)
     return acc / B
+
+
+def discover_q(qsrc, X, y, b, seed):
+    """dispatch a stability-selection q over the original features.
+
+    pc/ges are gaussian (pcalg); pc_cg/ges_cg are conditional-gaussian (bnlearn
+    mi-cg / bic-cg) for mixed data. returns q in [0,1]^p.
+    """
+    rng = np.random.default_rng(seed)
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore')
+        if qsrc == 'ges':
+            q, _ = ges_stability_q(X, y, B=b, subsample_fraction=0.5, rng=rng)
+        elif qsrc == 'pc_cg':
+            q = bnlearn_stability_q(X, y, method='mi-cg', B=b,
+                                    subsample_fraction=0.5, rng=rng)
+        elif qsrc == 'ges_cg':
+            q = bnlearn_stability_q(X, y, method='bic-cg', B=b,
+                                    subsample_fraction=0.5, rng=rng)
+        else:
+            q = pc_stability_q(X, y, B=b, subsample_fraction=0.5,
+                               alpha=0.1, m_max=5, rng=rng)
+    return q

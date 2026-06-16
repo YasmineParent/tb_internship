@@ -41,11 +41,11 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO_ROOT))
 
 from src.causal_prior.cv_mu import cv_pick_mu  # noqa: E402
-from src.causal_prior.priors import bnlearn_mb  # noqa: E402
+from src.causal_prior.priors import bnlearn_mb, discover_q  # noqa: E402
 from src.causal_prior.binarize import fit_binarizer, apply_binarizer  # noqa: E402
-from src.causal_prior.scorecard import discover_q, _import_fasterrisk  # noqa: E402
-from src.causal_prior.stability import _stability, _nogueira  # noqa: E402
-from src.causal_prior.baselines import _cfs_fisherz, iamb_soft_q  # noqa: E402
+from src.causal_prior.scorecard import import_fasterrisk  # noqa: E402
+from src.causal_prior.stability import mean_pairwise_jaccard, nogueira  # noqa: E402
+from src.causal_prior.baselines import cfs_fisherz, iamb_soft_q  # noqa: E402
 from experiments._io import new_run_dir  # noqa: E402
 from experiments.causal_prior.real.datasets import load_dataset  # noqa: E402
 
@@ -62,8 +62,8 @@ def _blankets(Xs, ys, alpha):
     """cfs markov blankets, re-selected on this (sub)sample at the original-feature level."""
     with warnings.catch_warnings():
         warnings.simplefilter('ignore')
-        return {'cfs_iamb': _cfs_fisherz('iamb', Xs, ys, alpha),
-                'cfs_hiton_mb': _cfs_fisherz('hiton_mb', Xs, ys, alpha),
+        return {'cfs_iamb': cfs_fisherz('iamb', Xs, ys, alpha),
+                'cfs_hiton_mb': cfs_fisherz('hiton_mb', Xs, ys, alpha),
                 'cfs_cg': bnlearn_mb(Xs, ys, method='iamb', test='mi-cg', alpha=alpha)}
 
 
@@ -71,7 +71,7 @@ def _eval_split(Xtr_o, ytr, Xte_o, yte01, q_orig, qi_orig, mbs, names, k,
                 n_thresholds, n_mu, mu_rel, n_cv, seed_tuple):
     """binarize train-only, fit every arm, score on the test rows. returns auc +
     original-feature support per arm (and the causal mu_hat_rel)."""
-    FR = _import_fasterrisk()
+    FR = import_fasterrisk()
     spec, _, parent = fit_binarizer(Xtr_o, names.tolist(), n_thresholds)
     Xtr, Xte = apply_binarizer(Xtr_o, spec), apply_binarizer(Xte_o, spec)
     all_cols = np.arange(Xtr.shape[1])
@@ -158,8 +158,8 @@ def _summary(res, names):
         for arm in ARMS:
             supps = [x[f'supp_{arm}'] for x in rn]
             row[f'auc_{arm}'] = float(np.nanmean([x[f'auc_{arm}'] for x in rn]))
-            row[f'stab_{arm}'] = _stability(supps)
-            row[f'nog_{arm}'] = _nogueira(supps, d)
+            row[f'stab_{arm}'] = mean_pairwise_jaccard(supps)
+            row[f'nog_{arm}'] = nogueira(supps, d)
         rows.append(row)
     return pd.DataFrame(rows)
 
@@ -180,31 +180,6 @@ def _contrasts(res):
                 'causal - cfs_cg (soft vs hard, cg)': paired('causal', 'cfs_cg'),
                 'causal - iamb_soft (cg vs fisher-z, both soft)': paired('causal', 'iamb_soft')}
     return long, causal, ablation
-
-
-def plot_cfs(summ, out_png, dataset):
-    import matplotlib
-    matplotlib.use('Agg')
-    import matplotlib.pyplot as plt
-    if len(summ) > 1:  # scarcity sweep: stability + auc vs n
-        fig, axes = plt.subplots(1, 2, figsize=(11, 4.2))
-        for arm in ARMS:
-            st = dict(marker='o', lw=2.2) if arm in SOLID else dict(marker='x', lw=1.2, ls='--', alpha=0.6)
-            axes[0].plot(summ['n'], summ[f'stab_{arm}'], color=COLORS[arm], label=LABELS[arm], **st)
-            axes[1].plot(summ['n'], summ[f'auc_{arm}'], color=COLORS[arm], label=LABELS[arm], **st)
-        axes[0].set(xlabel='train n', ylabel='support stability (Jaccard)',
-                    title=f'{dataset}: scarcity-regime stability', ylim=(0, 1))
-        axes[1].set(xlabel='train n', ylabel='test AUC', title=f'{dataset}: accuracy')
-        for ax in axes:
-            ax.set_xscale('log'); ax.legend(fontsize=8)
-    else:  # single operating point: bars of auc and stability
-        fig, axes = plt.subplots(1, 2, figsize=(11, 4.2))
-        xs = np.arange(len(ARMS))
-        for ax, col, ttl in ((axes[0], 'auc', 'test AUC'), (axes[1], 'nog', 'stability (Nogueira)')):
-            ax.bar(xs, [summ.iloc[0][f'{col}_{a}'] for a in ARMS], color=[COLORS[a] for a in ARMS])
-            ax.set_xticks(xs); ax.set_xticklabels([LABELS[a] for a in ARMS], rotation=30, ha='right', fontsize=8)
-            ax.set_title(f'{dataset}: {ttl}')
-    fig.tight_layout(); fig.savefig(out_png, dpi=160); plt.close(fig)
 
 
 def parse_args():
@@ -287,7 +262,6 @@ def main():
                       {**vars(args), 'leakage_free': True})
     summ.to_csv(out / 'summary.csv', index=False)
     long.to_csv(out / 'resamples.csv', index=False)
-    plot_cfs(summ, out / 'cfs.png', args.dataset)
 
     print(summ.to_string(index=False), flush=True)
     print('\npaired causal - arm (mean delta, wilcoxon p):', flush=True)

@@ -31,7 +31,8 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from src.causal_prior.cv_mu import cv_pick_mu  # noqa: E402
 from src.causal_prior.binarize import fit_binarizer, apply_binarizer  # noqa: E402
-from src.causal_prior.scorecard import discover_q, fit_eval, _import_fasterrisk  # noqa: E402
+from src.causal_prior.priors import discover_q  # noqa: E402
+from src.causal_prior.scorecard import fit_eval, import_fasterrisk  # noqa: E402
 from experiments._io import new_run_dir  # noqa: E402
 from experiments.causal_prior.real.datasets import load_dataset  # noqa: E402
 
@@ -70,7 +71,7 @@ def _split_unit(s, train_abs, test_abs, X_orig, y, q_orig, names, k_grid,
     the disjoint held-out discovery set. Records metrics, the fitted scorecards,
     and the causal arm's cv trace. Module-level + pure-Python so it pickles for
     joblib (no R here; discovery already ran once in the parent)."""
-    FasterRisk = _import_fasterrisk()
+    FasterRisk = import_fasterrisk()
     spec, col_names, parent = fit_binarizer(X_orig[train_abs], names, n_thresholds)
     q_bin = q_orig[parent]
     Xtr, Xte = apply_binarizer(X_orig[train_abs], spec), apply_binarizer(X_orig[test_abs], spec)
@@ -107,24 +108,6 @@ def _split_unit(s, train_abs, test_abs, X_orig, y, q_orig, names, k_grid,
                                                           cv.log_losses_per_mu,
                                                           cv.stabilities_per_mu))]
     return {'metrics': metrics, 'coefs': coefs, 'trace': trace}
-
-
-def plot_curve(df_agg, qsrc, out_png):
-    import matplotlib
-    matplotlib.use('Agg')
-    import matplotlib.pyplot as plt
-    fig, ax = plt.subplots(figsize=(5.0, 3.6))
-    for arm, color in (('vanilla', 'C0'), ('causal', 'C1')):
-        d = df_agg[df_agg['arm'] == arm].sort_values('k')
-        ax.errorbar(d['k'], d['auc_mean'], yerr=d['auc_std'], marker='o',
-                    capsize=3, color=color, label=arm)
-    ax.set_xlabel('model size (k)')
-    ax.set_ylabel('test AUC')
-    ax.set_title(f'parity curve ({qsrc}, leakage-free q)')
-    ax.legend()
-    fig.tight_layout()
-    fig.savefig(out_png, dpi=160)
-    plt.close(fig)
 
 
 def main():
@@ -181,7 +164,6 @@ def main():
     df_agg.to_csv(output_dir / 'ksweep.csv', index=False)
     pd.DataFrame(coef_rows).to_csv(output_dir / 'coefficients.csv', index=False)
     pd.DataFrame(trace_rows).to_csv(output_dir / 'cv_trace.csv', index=False)
-    plot_curve(df_agg, args.qsrc, output_dir / 'parity_curve.png')
 
     print(df_agg[['k', 'arm', 'auc_mean', 'auc_std', 'nfeat_mean']].to_string(index=False),
           flush=True)

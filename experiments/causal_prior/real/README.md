@@ -12,6 +12,9 @@ one-hot to `{0,1}` so the conditional-gaussian discovery treats them as factors.
 
 - `fico.py` — FICO HELOC (n=10459, near-continuous; `--sentinel-nan` for the -7/-8/-9 codes)
 - `heart.py` — Heart Disease Statlog (n=270, mixed clinical, via openml)
+- `tb.py` — TB-DLM delamanid resistance (n~152, binary mutations + lineage). Note: the
+  generic runners discover q themselves here; the §6.3 *domain-q* result uses the bespoke
+  `tb_dlm_*.py` scripts (precomputed CMM prior), not this loader.
 
 ## Runners (each takes `--dataset`)
 
@@ -42,3 +45,9 @@ python experiments/causal_prior/real/cfs.py --dataset fico --sentinel-nan --n-gr
 python experiments/causal_prior/real/parity.py --dataset heart
 python experiments/causal_prior/real/ksweep.py --dataset fico --sentinel-nan --qsrc ges_cg
 ```
+
+## Setup note
+
+The `cfs_*` baselines use pyCausalFS, which is not on PyPI. It is vendored (and
+gitignored) at `external/pyCausalFS/`; if missing, `cfs_fisherz` raises with the
+clone command. The folktables data (`transport.py`) auto-downloads on first run.

@@ -17,16 +17,23 @@ import numpy as np
 import pandas as pd
 
 # pyCausalFS is vendored (not a pip package); put it on the path for the lazy
-# CBD imports inside _cfs_fisherz.
+# CBD imports inside cfs_fisherz.
 _PYCFS = Path(__file__).resolve().parents[2] / 'external' / 'pyCausalFS'
 if _PYCFS.is_dir() and str(_PYCFS) not in sys.path:
     sys.path.insert(0, str(_PYCFS))
 
 
-def _cfs_fisherz(algo, X, y, alpha):
+def cfs_fisherz(algo, X, y, alpha):
     """pyCausalFS Markov blanket with Fisher-Z (off-the-shelf, Gaussian CI test)."""
-    from CBD.MBs.IAMB import IAMB
-    from CBD.MBs.HITON.HITON_MB import HITON_MB
+    try:
+        from CBD.MBs.IAMB import IAMB
+        from CBD.MBs.HITON.HITON_MB import HITON_MB
+    except ImportError as e:
+        raise ImportError(
+            f'pyCausalFS not found at {_PYCFS}. it is not on pypi; clone it there:\n'
+            '  git clone https://github.com/wt-hu/pyCausalFS '
+            f'{_PYCFS.parent}/pyCausalFS-repo && '
+            f'cp -r {_PYCFS.parent}/pyCausalFS-repo/pyCausalFS {_PYCFS}') from e
     fn = {'iamb': IAMB, 'hiton_mb': HITON_MB}[algo]
     data = pd.DataFrame(np.column_stack([X, (y > 0).astype(int)]))
     with warnings.catch_warnings():
@@ -45,7 +52,7 @@ def iamb_soft_q(X, y, alpha, B, rng, algo='iamb'):
     n = len(y)
     for _ in range(B):
         idx = rng.choice(n, size=max(20, n // 2), replace=False)  # subsample_fraction=0.5
-        mb = _cfs_fisherz(algo, X[idx], y[idx], alpha)
+        mb = cfs_fisherz(algo, X[idx], y[idx], alpha)
         if mb:
             counts[mb] += 1
     return counts / B

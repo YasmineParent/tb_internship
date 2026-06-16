@@ -31,7 +31,8 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from src.causal_prior.cv_mu import cv_pick_mu  # noqa: E402
 from src.causal_prior.binarize import fit_binarizer, apply_binarizer  # noqa: E402
-from src.causal_prior.scorecard import discover_q, _import_fasterrisk  # noqa: E402
+from src.causal_prior.priors import discover_q  # noqa: E402
+from src.causal_prior.scorecard import import_fasterrisk  # noqa: E402
 from experiments._io import new_run_dir  # noqa: E402
 from experiments.causal_prior.real.datasets import load_dataset  # noqa: E402
 
@@ -77,26 +78,6 @@ def pool_rows(fr, q_bin, Xte, yte, arm):
     return rows
 
 
-def plot_rashomon(pool, auc_floor, out_png):
-    import matplotlib
-    matplotlib.use('Agg')
-    import matplotlib.pyplot as plt
-    fig, ax = plt.subplots(figsize=(5.4, 4.0))
-    for arm, c in (('vanilla', 'C0'), ('causal', 'C1')):
-        d = pool[pool['arm'] == arm]
-        ax.scatter(d['q_mass'], d['auc'], s=28, alpha=0.7, color=c, label=arm)
-        ax.axvline(d['q_mass'].mean(), color=c, ls='--', lw=1, alpha=0.7)
-    ax.axhline(auc_floor, color='grey', ls=':', lw=1,
-               label=f'matched-accuracy floor ({auc_floor:.3f})')
-    ax.set_xlabel('support q-mass (mean causal evidence of selected features)')
-    ax.set_ylabel('test AUC')
-    ax.set_title('Rashomon pool: prior steers supports toward causal evidence')
-    ax.legend()
-    fig.tight_layout()
-    fig.savefig(out_png, dpi=160)
-    plt.close(fig)
-
-
 def main():
     args = parse_args()
     X_orig, names, y = load_dataset(args.dataset, args)
@@ -119,7 +100,7 @@ def main():
     Xtr, Xte = apply_binarizer(X_orig[tr_idx], spec), apply_binarizer(X_orig[te_idx], spec)
     ytr, yte = y[tr_idx], (y[te_idx] > 0).astype(int)
 
-    FR = _import_fasterrisk()
+    FR = import_fasterrisk()
     mu_scale = float(np.median(0.5 * np.abs(Xtr.T @ ytr)))
     with warnings.catch_warnings():
         warnings.simplefilter('ignore')
@@ -157,7 +138,6 @@ def main():
     pool.to_csv(out / 'pool.csv', index=False)
     summ_full.to_csv(out / 'summary_full_pool.csv')
     summ_matched.to_csv(out / 'summary_matched_band.csv')
-    plot_rashomon(pool, auc_floor, out / 'rashomon.png')
 
     print('full pool:\n' + summ_full.to_string(), flush=True)
     print(f"\nmatched-accuracy band (auc >= {auc_floor:.4f}):\n" + summ_matched.to_string(),

@@ -27,7 +27,8 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from src.causal_prior.cv_mu import cv_pick_mu  # noqa: E402
 from src.causal_prior.binarize import fit_binarizer, apply_binarizer  # noqa: E402
-from src.causal_prior.scorecard import discover_q, fit_eval, _import_fasterrisk  # noqa: E402
+from src.causal_prior.priors import discover_q  # noqa: E402
+from src.causal_prior.scorecard import fit_eval, import_fasterrisk  # noqa: E402
 from experiments._io import new_run_dir  # noqa: E402
 from experiments.causal_prior.real.datasets import load_dataset  # noqa: E402
 
@@ -67,7 +68,7 @@ def main():
     print(f'{args.qsrc.upper()} discovery (B={args.b}) on held-out set...', flush=True)
     q_orig = discover_q(args.qsrc, X_orig[disc_idx], y[disc_idx].astype(float), args.b, args.seed)
 
-    FasterRisk = _import_fasterrisk()
+    FasterRisk = import_fasterrisk()
     sss = StratifiedShuffleSplit(n_splits=args.splits, test_size=args.test_size,
                                  random_state=args.seed)
     records = []

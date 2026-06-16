@@ -1,8 +1,8 @@
 """selection-stability metrics over a list of selected-feature supports.
 
 each support is a set (frozenset) of selected feature identifiers; the list is the
-selections across resamples. `_stability` is the mean pairwise Jaccard (the metric
-used throughout §6.2 and §6.3); `_nogueira` is the chance-corrected index that
+selections across resamples. `mean_pairwise_jaccard` is the mean pairwise Jaccard (the metric
+used throughout §6.2 and §6.3); `nogueira` is the chance-corrected index that
 stays comparable across methods selecting different numbers of features.
 """
 from __future__ import annotations
@@ -13,16 +13,16 @@ from itertools import combinations
 import numpy as np
 
 
-def _jaccard(a, b):
+def jaccard(a, b):
     return len(a & b) / len(a | b) if (a | b) else 1.0
 
 
-def _stability(supports):
-    pairs = [_jaccard(a, b) for a, b in combinations(supports, 2)]
+def mean_pairwise_jaccard(supports):
+    pairs = [jaccard(a, b) for a, b in combinations(supports, 2)]
     return float(np.mean(pairs)) if pairs else float('nan')
 
 
-def _nogueira(supports, d):
+def nogueira(supports, d):
     """nogueira & brown (jmlr 2017) chance-corrected selection stability.
 
     1 = identical selections across resamples, ~0 = no better than random, can go

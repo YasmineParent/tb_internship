@@ -42,10 +42,10 @@ from sklearn.metrics import roc_auc_score
 REPO_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO_ROOT))
 
-from src.causal_prior.priors import bnlearn_mb  # noqa: E402
+from src.causal_prior.priors import bnlearn_mb, discover_q  # noqa: E402
 from src.causal_prior.binarize import fit_binarizer, apply_binarizer  # noqa: E402
-from src.causal_prior.scorecard import discover_q, _import_fasterrisk  # noqa: E402
-from src.causal_prior.baselines import _cfs_fisherz  # noqa: E402
+from src.causal_prior.scorecard import import_fasterrisk  # noqa: E402
+from src.causal_prior.baselines import cfs_fisherz  # noqa: E402
 from experiments._io import new_run_dir  # noqa: E402
 
 # continuous/ordinal kept numeric (thresholded later); the rest one-hot to {0,1}
@@ -111,7 +111,7 @@ def main():
     print(f'features={len(names)} (>=2 cont + indicators); source n={len(ysrc)}; ' +
           '; '.join(f'{t} n={len(v[1])}' for t, v in tgt.items()), flush=True)
 
-    FR = _import_fasterrisk()
+    FR = import_fasterrisk()
     rng0 = np.random.default_rng(args.seed)
     perm = rng0.permutation(len(ysrc))
     disc = perm[:args.n_disc]                      # held-out selection split
@@ -122,8 +122,8 @@ def main():
     with warnings.catch_warnings():
         warnings.simplefilter('ignore')
         q = discover_q('ges_cg', Xsrc[disc], ysrc[disc].astype(float), args.b, args.seed)
-        mbs = {'cfs_iamb': _cfs_fisherz('iamb', Xsrc[disc], ysrc[disc], args.alpha),
-               'cfs_hiton_mb': _cfs_fisherz('hiton_mb', Xsrc[disc], ysrc[disc], args.alpha),
+        mbs = {'cfs_iamb': cfs_fisherz('iamb', Xsrc[disc], ysrc[disc], args.alpha),
+               'cfs_hiton_mb': cfs_fisherz('hiton_mb', Xsrc[disc], ysrc[disc], args.alpha),
                'cfs_cg': bnlearn_mb(Xsrc[disc], ysrc[disc], method='iamb', test='mi-cg',
                                     alpha=args.alpha)}
     for a, mb in mbs.items():
