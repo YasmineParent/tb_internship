@@ -6,9 +6,9 @@ categoricals are one-hot to {0,1} indicators so the conditional-gaussian discove
 treats them as factors and the binarizer passes them through. dataset-specific
 options are read off the args namespace (e.g. fico's --sentinel-nan).
 """
-from . import fico, heart, tb
+from . import fico, heart, mammographic, tb
 
-DATASETS = {'fico': fico, 'heart': heart, 'tb': tb}
+DATASETS = {'fico': fico, 'heart': heart, 'mammographic': mammographic, 'tb': tb}
 
 
 def load_dataset(name, args):

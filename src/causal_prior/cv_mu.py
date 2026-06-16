@@ -30,6 +30,8 @@ import numpy as np
 from sklearn.metrics import log_loss, roc_auc_score
 from sklearn.model_selection import StratifiedKFold
 
+from .scorecard import import_fasterrisk
+
 
 @dataclass
 class CVResult:
@@ -61,14 +63,6 @@ def _mean_pairwise_jaccard(supports: list[list[int]]) -> float:
                 continue
             pairs.append(len(sets[i] & sets[j]) / len(union))
     return float(np.mean(pairs)) if pairs else 0.0
-
-
-def import_fasterrisk():
-    """Defer FR import; the R-binding warning fires on every fresh worker."""
-    with warnings.catch_warnings():
-        warnings.simplefilter('ignore')
-        from fasterrisk.wrapper import FasterRisk
-    return FasterRisk
 
 
 def cv_pick_mu(X: np.ndarray, y: np.ndarray, K: int,
