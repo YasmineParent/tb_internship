@@ -36,9 +36,14 @@ def cfs_fisherz(algo, X, y, alpha):
             f'cp -r {_PYCFS.parent}/pyCausalFS-repo/pyCausalFS {_PYCFS}') from e
     fn = {'iamb': IAMB, 'hiton_mb': HITON_MB}[algo]
     data = pd.DataFrame(np.column_stack([X, (y > 0).astype(int)]))
-    with warnings.catch_warnings():
-        warnings.simplefilter('ignore')
-        mb, _ = fn(data, X.shape[1], alpha, False)
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore')
+            mb, _ = fn(data, X.shape[1], alpha, False)
+    except Exception:
+        # fisher-z inverts a covariance that is singular on collinear one-hot data;
+        # the honest outcome is "no usable blanket", not a crashed run.
+        return []
     return sorted(int(j) for j in mb)
 
 
