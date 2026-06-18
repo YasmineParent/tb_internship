@@ -153,6 +153,251 @@ $\hat S(q) = \arg\min_S \ell(S) =: S_{\mathrm{loss}}$, and a $q$-perturbation is
 $\hat S(q) \ne S_{\mathrm{loss}}$, the "separation threshold" of §5. Above $\mu_0$
 the explicit $1/\mu$ in $\varepsilon^\star$ takes over.
 
+## Lemma 1 (closed form for the separation threshold $\mu_0$)
+
+Let $S_{\mathrm{loss}} = \arg\min_{|S|\le K}\ell(S)$ be the vanilla ($\mu=0$) support.
+Each $F_q(S)=\ell(S)-\mu Q(S)$ is affine in $\mu$ with intercept $\ell(S)$ and slope
+$-Q(S)$, and the MAP is their lower envelope. A competitor $S$ can overtake
+$S_{\mathrm{loss}}$ at some $\mu>0$ only if its line falls faster, i.e.
+$Q(S)>Q(S_{\mathrm{loss}})$; the two lines cross at
+
+$$
+\mu(S) \;=\; \frac{\ell(S)-\ell(S_{\mathrm{loss}})}{Q(S)-Q(S_{\mathrm{loss}})}\;\ge\;0
+$$
+
+(numerator $\ge 0$ since $S_{\mathrm{loss}}$ minimizes $\ell$; denominator $>0$ by
+assumption). A competitor with $Q(S)\le Q(S_{\mathrm{loss}})$ never crosses for
+$\mu>0$. Hence the smallest $\mu$ at which the MAP leaves $S_{\mathrm{loss}}$ is
+
+$$
+\mu_0 \;=\; \min_{\substack{|S|\le K\\ Q(S)>Q(S_{\mathrm{loss}})}}
+\frac{\ell(S)-\ell(S_{\mathrm{loss}})}{Q(S)-Q(S_{\mathrm{loss}})},
+$$
+
+and the minimizing $S$ is the support the MAP jumps to at $\mu_0$. If no $|S|\le K$
+has $Q(S)>Q(S_{\mathrm{loss}})$, then $\mu_0=\infty$ and the prior never moves the
+support.
+
+This is consistent with the transition picture above: at $\mu_0$ the runner-up $S_2$
+attaining the minimum has $Q(S_2)>Q(S_{\mathrm{loss}})$, so in $\Delta(q)=a+\mu b$
+with $a=\ell(S_2)-\ell(S_{\mathrm{loss}})\ge 0$ and $b=Q(S_{\mathrm{loss}})-Q(S_2)<0$,
+the gap decreases in $\mu$ and reaches $0$ exactly at $-a/b=\mu_0$. So $\mu_0$ is the
+first support transition, where $\Delta(q)\to 0$ as already noted. This is the closed
+form left open in caveat 4.
+
+## Corollary (do-no-harm: an uninformative prior cannot demote the loss-optimal support)
+
+Take an uninformative prior $q\equiv c\,\mathbf 1$ (every feature equally credible),
+so $Q(S)=c\,|S|$. Two consequences follow from Lemma 1.
+
+(i) *Order preservation within a cardinality.* For any two supports with $|S|=|S'|$,
+$Q(S)=Q(S')=c|S|$, so $F_q(S)-F_q(S')=\ell(S)-\ell(S')$ for every $\mu$. A constant
+prior never reorders supports of the same size: it cannot promote a higher-loss
+support above a lower-loss one. Its only degree of freedom is total sparsity, through
+the size reward $-\mu c|S|$.
+
+(ii) *Inertness at budget.* By Lemma 1, $Q(S)>Q(S_{\mathrm{loss}})$ requires
+$|S|>|S_{\mathrm{loss}}|$, so
+
+$$
+\mu_0^{\mathrm{const}} \;=\;
+\min_{|S_{\mathrm{loss}}|<|S|\le K}\frac{\ell(S)-\ell(S_{\mathrm{loss}})}{c\,(|S|-|S_{\mathrm{loss}}|)} .
+$$
+
+In particular, if the vanilla minimizer already uses the full budget
+($|S_{\mathrm{loss}}|=K$), there is no admissible larger competitor and
+$\mu_0^{\mathrm{const}}=\infty$: a constant prior leaves the MAP at $S_{\mathrm{loss}}$
+for every $\mu$. When $|S_{\mathrm{loss}}|<K$, the sole effect of raising $\mu$ is to
+fill the support toward $K$ with the next-lowest-loss features, never to swap among a
+fixed size.
+
+This is the support-level statement behind the empirical "never dominated": an
+uninformative $q$ has no loss-side lever, only a sparsity knob, so it cannot select a
+higher-loss support than vanilla at the same size. It is also why log-loss CV drives
+$\hat\mu\to 0$ for uninformative $q$: with no loss margin to buy, CV sees only the
+sparsity shove and declines to pay for it, recovering vanilla FasterRisk.
+
+## Theorem 3 (probabilistic data-stability and a Nogueira floor)
+
+Theorem 2 is deterministic: it certifies stability per resample once the realized loss
+deviation $\eta$ falls below $\eta^\star=\Delta(q)/2$. We now bound $\eta$ with high
+probability and convert the result into a lower bound on the Nogueira stability index
+$\hat\Phi$ reported in §6.2.
+
+**Setup.** Resamples $b=1,\dots,m$ are drawn from the data (subsample of size $n$, or
+bootstrap). Binarized features lie in $\{0,1\}$ and weights in the box
+$[-C,C]^{|S|}\times[-C_0,C_0]$, so every margin obeys $|w\cdot x_S+w_0|\le KC+C_0=:M$
+and the per-example logistic loss lies in $[0,B]$ with $B=M+\log 2$. Write $\ell_b(S)$
+for the restricted boxed minimum on resample $b$ and
+$\eta_b=\sup_{|S|\le K}|\ell_b(S)-\ell(S)|$.
+
+**Proposition.** There is a universal constant $c_0$ such that, with probability at
+least $1-\delta$ over a resample,
+
+$$
+\eta_b \;\le\; \varepsilon_n(\delta) \;:=\; c_0\,B\sqrt{\frac{K\log p+\log(1/\delta)}{n}} .
+$$
+
+*Proof sketch.* The restricted minimum is $1$-Lipschitz in the sup-norm of the
+objective: $|\ell_b(S)-\ell(S)|\le\sup_{w\in\mathrm{box}}|\hat R_b(w,S)-\hat R(w,S)|$,
+where $\hat R$ is the average logistic loss. For a fixed $S$, the class
+$\{x\mapsto\mathrm{loss}(w\cdot x_S+w_0):w\in\mathrm{box}\}$ is a $1$-Lipschitz
+transform of a bounded linear class in $|S|+1\le K+1$ dimensions (the logistic loss
+has derivative in $[0,1]$ w.r.t. the margin), so its Rademacher complexity is
+$O(B\sqrt{K/n})$; a bounded-differences bound gives
+$\sup_w|\hat R_b-\hat R|\le O(B\sqrt{K/n})+B\sqrt{\log(1/\delta')/(2n)}$ with
+probability $1-\delta'$. Union over the at most $\binom{p+1}{\le K}\le p^{K}$
+admissible supports (set $\delta'=\delta/p^K$, contributing
+$\log(1/\delta')=K\log p+\log(1/\delta)$) gives the stated uniform bound.
+$\qquad\blacksquare$
+
+**Corollary (sample complexity for per-resample stability).** Combining the
+Proposition with Theorem 2 ($\eta_b<\Delta(q)/2\Rightarrow\hat S_b(q)=\hat S(q)$): if
+
+$$
+n \;\ge\; \frac{4c_0^2\,B^2\,\bigl(K\log p+\log(1/\delta)\bigr)}{\Delta(q)^2},
+$$
+
+then $\varepsilon_n(\delta)<\Delta(q)/2$ and a resample reproduces the MAP support with
+probability at least $1-\delta$.
+
+**Corollary (Nogueira floor).** Let $\hat\rho$ be the fraction of the $m$ resamples
+whose support differs from $\hat S(q)$; by the previous corollary
+$\mathbb E[\hat\rho]\le\delta$. For every feature $f$, the selection frequency
+$\hat p_f$ lies within $\hat\rho$ of $\{0,1\}$, so $\hat p_f(1-\hat p_f)\le\hat\rho$
+and $s_f^2=\tfrac{m}{m-1}\hat p_f(1-\hat p_f)\le\tfrac{m}{m-1}\hat\rho$. With
+$k=|\hat S(q)|$ and $d$ features,
+
+$$
+\mathbb E\bigl[1-\hat\Phi\bigr] \;\le\;
+\frac{m}{m-1}\cdot\frac{\delta}{(k/d)(1-k/d)} .
+$$
+
+So under the sample-complexity condition the support is selected identically across
+resamples with high probability and $\hat\Phi\to 1$, at a rate governed by the loss
+margin $\Delta(q)$.
+
+**The role of the prior.** $\Delta(q)$ sits in the denominator of the sample
+complexity, and an informative $q$ that gives the loss-reasonable support $\hat S(q)$
+a genuine $Q$-margin enlarges $\Delta(q)$ beyond the vanilla loss gap (the Theorem 2
+discussion). The prior therefore lowers the $n$ needed for a target stability: this is
+the theory behind the scarce-$n$ stability gain measured by the Jaccard and Nogueira
+curves in §6.2, and it predicts the gain should be largest exactly where the vanilla
+loss gap is smallest (the near-tie regime, where $\mathbb E[1-\hat\Phi]$ is otherwise
+worst). This carries out the probabilistic upgrade left open in caveat 3.
+
+**Caveats.** Inherits the support-level-MAP scope of Theorems 1 and 2 (the
+beam-search gap and rounding, caveat 1, sit between this and the integer scorecard).
+The union bound over $p^K$ supports is loose, so this is a rate statement
+($n=\tilde O(K/\Delta(q)^2)$), not a sharp prediction of $\hat\Phi$; the realized
+stability is better. Constants are not optimized, and the without-replacement
+subsample case uses the same bound up to the usual sampling constant.
+
+## Large-sample behaviour: risk convergence and selection consistency
+
+Theorems 1 to 3 are finite-sample and fix the data or compare resamples of it. The
+same uniform-convergence tool, run against the population risk rather than the
+full-data empirical risk, gives the large-sample picture. Let
+
+$$
+\ell_\infty(S) \;=\; \min_{\substack{w\in\mathrm{box}\\ \mathrm{supp}(w)\subseteq S}}
+\mathbb E_{(x,y)}\bigl[\mathrm{loss}(w;x,y)\bigr]
+$$
+
+be the population restricted risk, $F_\infty(S)=\ell_\infty(S)-\mu Q(S)$ the penalized
+population objective, $S_{\mathrm{pop}}(q)=\arg\min_{|S|\le K}F_\infty(S)$ its
+minimizer, and $\Delta_\infty(q)=\min_{S\ne S_{\mathrm{pop}}}[F_\infty(S)-F_\infty(S_{\mathrm{pop}})]$
+the population margin.
+
+**Proposition (uniform risk convergence).** The Theorem 3 Proposition holds verbatim
+with the population measure as the base: with probability at least $1-\delta$,
+
+$$
+\sup_{|S|\le K}\bigl|\ell_n(S)-\ell_\infty(S)\bigr| \;\le\;
+\varepsilon_n(\delta)=c_0\,B\sqrt{\frac{K\log p+\log(1/\delta)}{n}} .
+$$
+
+Same $1$-Lipschitz-min, boxed-logistic Rademacher, and union-over-$p^K$-supports
+argument; only the reference measure changes.
+
+**Corollary (risk convergence, no margin needed).** Because $\hat S_n(q)$ minimizes
+the empirical $F_n$ and $F_n$ is within $\varepsilon_n$ of $F_\infty$ uniformly, the
+standard ERM excess-risk inequality gives
+
+$$
+F_\infty\bigl(\hat S_n(q)\bigr)-F_\infty\bigl(S_{\mathrm{pop}}(q)\bigr)
+\;\le\; 2\,\varepsilon_n(\delta)=O\!\Bigl(B\sqrt{\tfrac{K\log p}{n}}\Bigr).
+$$
+
+The selected scorecard converges to the penalized population optimum in objective
+value at the $\sqrt{K\log p/n}$ rate, with no identifiability or margin assumption. In
+particular this convergence survives the near-tie regime where $\Delta_\infty(q)\to 0$
+and selection consistency (below) fails: at a near-tie the competing supports have
+nearly equal $F_\infty$ by definition, so picking the "wrong" one of two near-tied
+supports costs $O(\Delta_\infty)\to 0$ in objective. The support may flicker; the risk
+does not. This is the assumption-light guarantee, and the operative one at near-ties.
+
+**Do-no-harm in risk units.** In the safe regime $\mu\le\mu_0$ the population minimizer
+is the unpenalized $K$-sparse risk optimum $S_{\mathrm{loss}}^\infty$ (Lemma 1,
+population version), so the prior steers to vanilla's target and the bound above is
+pure risk convergence to the best boxed $K$-sparse model. Above $\mu_0$ the target
+shifts by the deliberate prior bias: since $S_{\mathrm{pop}}$ minimizes
+$\ell_\infty-\mu Q$,
+
+$$
+0\;\le\;\ell_\infty(S_{\mathrm{pop}})-\ell_\infty(S_{\mathrm{loss}}^\infty)
+\;\le\;\mu\bigl(Q(S_{\mathrm{pop}})-Q(S_{\mathrm{loss}}^\infty)\bigr),
+$$
+
+the price paid to buy the $Q$-margin that Theorem 3 converts into stability. It
+vanishes as $\mu\downarrow\mu_0$, so the safe regime gets the stability gain at no
+first-order risk cost.
+
+**Theorem 4 (selection consistency).** Assume population identifiability
+$\Delta_\infty(q)>0$. If
+
+$$
+n \;\ge\; \frac{4c_0^2\,B^2\bigl(K\log p+\log(1/\delta)\bigr)}{\Delta_\infty(q)^2},
+$$
+
+then $\varepsilon_n(\delta)<\Delta_\infty(q)/2$ and the margin argument of Theorem 2
+gives $\hat S_n(q)=S_{\mathrm{pop}}(q)$ with probability at least $1-\delta$. Taking
+$\delta=\delta_n$ summable (e.g. $\delta_n=n^{-2}$) and Borel-Cantelli,
+$\hat S_n(q)=S_{\mathrm{pop}}(q)$ eventually almost surely: the prior-MAP support is
+selection-consistent for $S_{\mathrm{pop}}(q)$.
+
+**Estimated $q$.** If the discovery procedure returns $q_n$ with
+$\lVert q_n-q_\infty\rVert_\infty\to_p 0$, Theorem 1 absorbs the prior perturbation
+once $\lVert q_n-q_\infty\rVert_\infty<\varepsilon^\star$ (the population prior radius),
+so on the intersection of the two high-probability events
+$\hat S_n(q_n)=S_{\mathrm{pop}}(q_\infty)$ eventually. The clause is honest about the
+dependency: it inherits whatever conditions the $q$-source needs for consistency
+(faithfulness for PC/GES; the stability-selection conditions for iamb\_soft).
+
+**Consistent to what.** $S_{\mathrm{pop}}(q)$ is the minimizer of
+population-risk-minus-prior over the boxed $K$-sparse class, the estimand the method
+defines, not by itself the causal or data-generating support. The two coincide when
+the prior-shifted population optimum equals the truth, which holds for a well-specified
+model with an aligned (e.g. oracle causal) $q$ and can fail under a biased $q$ or
+misspecification. So Theorem 4 is consistency for the method's estimand; identifying
+that estimand with the causal truth is the separate question that §6.1 (mechanism) and
+the transport story (ICP) address. The separation is deliberate: the optimizer is
+consistent for its estimand, and the causal content lives in $q$'s identification, not
+in the estimator.
+
+**Parameter convergence.** Conditional on the selection event
+$\hat S_n(q)=S_{\mathrm{pop}}(q)$ (Theorem 4), the within-support fit is a smooth,
+strongly convex (with the ridge term) M-estimation problem on a fixed low-dimensional
+support, so $\hat w_n\to w_{\mathrm{pop}}$ at the usual $\sqrt n$ rate. Unconditionally
+it inherits Theorem 4's margin assumption.
+
+**Scope.** As with Theorems 1 to 3 these are support-level-MAP statements (the
+beam-search gap and rounding, caveat 1, sit between them and the integer scorecard),
+the union bound over $p^K$ supports is loose (rates, not sharp constants), and
+$\Delta_\infty(q)>0$ is the population analogue of the uniqueness assumption, failing
+at population near-ties, where the risk Corollary, not Theorem 4, is the operative
+guarantee.
+
 ## Why this matters: the two empirical phenomena are one bound
 
 The causal prior reparametrizes the source of support variance from the data toward
@@ -252,7 +497,9 @@ is why exact enumeration is the appropriate test.
    do not claim the cardinality factor $K$ in the exchange rate; it is slack from
    the easy bound and does not survive the tight Theorem 1.
 3. $r_\ell$ uses a uniform bound $\eta$ over all supports; a subsample-specific
-   high-probability bound on $\eta$ (Meinshausen-Bühlmann style) would turn
-   Theorem 2 into a probabilistic stability statement and is the natural next step.
-4. The $\mu_0$ characterization is stated, not yet a closed form; deriving
-   $\mu_0$ in terms of $a$ and the $q$-mass advantage is a clean small lemma.
+   high-probability bound on $\eta$ (Meinshausen-Bühlmann style) turns Theorem 2
+   into a probabilistic stability statement. Done in Theorem 3 (probabilistic
+   data-stability and a Nogueira floor) above.
+4. The $\mu_0$ characterization is now in closed form: Lemma 1 (closed form for the
+   separation threshold $\mu_0$) above, with the do-no-harm corollary for
+   uninformative $q$.
