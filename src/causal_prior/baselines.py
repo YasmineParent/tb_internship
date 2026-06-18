@@ -1,11 +1,15 @@
-"""causal feature-selection baselines used for comparison.
+"""naive off-the-shelf causal feature-selection baselines (pyCausalFS).
 
-pyCausalFS fisher-z markov blankets (IAMB, HITON-MB) and a soft prior built from
-the same fisher-z search, for the soft-vs-hard ablation. the conditional-gaussian
-blanket `bnlearn_mb` (the valid mixed-data selector) lives in priors.py.
+cfs_fisherz runs pyCausalFS markov-blanket discovery (IAMB, HITON-MB) with the
+fisher-z ci test. IAMB and HITON-MB are causal markov-blanket algorithms; the
+fisher-z test assumes joint gaussianity and is invalid on mixed/one-hot data
+(pyCausalFS ships no mixed-data test), so on these benchmarks they are a naive
+off-the-shelf reference, not a valid mixed-data selector. these are the cfs_iamb
+and cfs_hiton_mb hard baselines (the requested CFS comparison).
 
-fisher-z assumes joint gaussianity and is not valid on mixed data; these are a
-predictive-filter reference, not a valid causal selector there. see §6.2b.
+the VALID mixed-data selectors live in priors.py: bnlearn_mb (iamb + mi-cg, the
+hard cfs_cg baseline) and bnlearn_mb_stability_q (iamb + mi-cg, used softly as the
+method's iamb_soft prior). see §6.2b.
 """
 from __future__ import annotations
 
@@ -47,11 +51,15 @@ def cfs_fisherz(algo, X, y, alpha):
     return sorted(int(j) for j in mb)
 
 
-def iamb_soft_q(X, y, alpha, B, rng, algo='iamb'):
-    """soft prior built from the SAME fisher-z markov-blanket search as the cfs
-    arms: q_j = fraction of B subsamples in which feature j lands in the iamb
-    blanket. identical form to the ges_cg stability-selection q, so feeding it into
-    the soft prior isolates soft-vs-hard use of one fixed information source."""
+def iamb_fisherz_stability_q(X, y, alpha, B, rng, algo='iamb'):
+    """soft prior built from the SAME pyCausalFS fisher-z iamb search as the cfs_iamb
+    hard baseline: q_j = fraction of B subsamples in which feature j lands in the
+    fisher-z markov blanket. this is an ABLATION CONTROL, not the deployed method:
+    its only job is to isolate soft-vs-hard at a FIXED ci test (fisher-z), matched to
+    cfs_iamb, so the soft-vs-hard contrast is not confounded with the ci test. the
+    method ships the mixed-data-valid mi-cg variant (priors.bnlearn_mb_stability_q).
+    on one-hot data fisher-z is singular and cfs_fisherz returns [], so q collapses
+    toward zero there; that is the honest ci-test effect, not a bug."""
     p = X.shape[1]
     counts = np.zeros(p)
     n = len(y)

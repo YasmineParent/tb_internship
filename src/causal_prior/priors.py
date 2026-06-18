@@ -316,6 +316,115 @@ def bnlearn_mb(X: np.ndarray, y: np.ndarray, method: str = 'iamb',
                   if isinstance(nm, str) and nm.startswith('x') and nm[1:].isdigit())
 
 
+def _bnlearn_mb_one_subsample(idx: np.ndarray, X: np.ndarray, y01: np.ndarray,
+                              disc_cols: list[int], test: str,
+                              alpha: float) -> np.ndarray:
+    """one bnlearn iamb markov-blanket learn on a subsample; length-p indicator of
+    the blanket of y. mirrors _bnlearn_one_subsample but uses learn.mb (iamb) with
+    the mixed-data ci test, for the soft iamb prior."""
+    import rpy2.robjects as ro
+    from rpy2.robjects.conversion import localconverter
+
+    p = X.shape[1]
+    with localconverter(_R_CONVERTER):
+        ro.globalenv['Xmat'] = X[idx]
+        ro.globalenv['yvec'] = y01[idx].astype(float)
+        ro.globalenv['disc'] = np.asarray(disc_cols, dtype=float)
+    ro.r('''
+        df <- as.data.frame(Xmat)
+        names(df) <- paste0("x", seq_len(ncol(df)) - 1L)
+        for (j in as.integer(disc)) df[[j]] <- as.factor(df[[j]])
+        df[["y"]] <- as.factor(yvec)
+    ''')
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore')
+        ro.r(f'mb <- tryCatch(learn.mb(df, "y", method="iamb", test="{test}", '
+             f'alpha={alpha}), error=function(e) character(0))')
+    with localconverter(_R_CONVERTER):
+        mb = list(ro.r('mb'))
+    out = np.zeros(p, dtype=int)
+    for nm in mb:
+        if isinstance(nm, str) and nm.startswith('x') and nm[1:].isdigit():
+            out[int(nm[1:])] = 1
+    return out
+
+
+def bnlearn_mb_stability_q(X: np.ndarray, y: np.ndarray, test: str = 'mi-cg',
+                           alpha: float = 0.05, B: int = 100,
+                           subsample_fraction: float = 0.5,
+                           rng: np.random.Generator | None = None) -> np.ndarray:
+    """subsample-stability q from bnlearn's iamb markov-blanket learner with the
+    mixed-data conditional-gaussian ci test (mi-cg). q_j = freq over B subsamples
+    that feature j lands in the blanket of y.
+
+    this is the soft iamb prior used by the method's iamb_soft arm: the SAME
+    iamb+mi-cg discovery as the cfs_cg hard baseline, used softly, so cfs_cg vs
+    iamb_soft is a clean same-source soft-vs-hard contrast on a valid mixed-data
+    test. replaces the earlier pycausalfs fisher-z source (invalid on mixed data);
+    pycausalfs stays only for the naive hard cfs_iamb/cfs_hiton baselines."""
+    if rng is None:
+        rng = np.random.default_rng()
+    n, p = X.shape
+    y01 = (np.asarray(y) > 0).astype(int)
+    disc_cols = [j + 1 for j in range(p)
+                 if set(np.unique(X[:, j]).tolist()) <= {0.0, 1.0}]
+    _init_R_bnlearn()
+    indices = [_subsample_indices(n, subsample_fraction, rng) for _ in range(B)]
+    blankets = [_bnlearn_mb_one_subsample(idx, X, y01, disc_cols, test, alpha)
+                for idx in indices]
+    return np.sum(blankets, axis=0) / B
+
+
+def _iamb_gauss_one_subsample(idx: np.ndarray, X: np.ndarray, y_cont: np.ndarray,
+                              test: str) -> np.ndarray:
+    """one bnlearn iamb markov-blanket learn on a continuous (gaussian) subsample;
+    length-p indicator of the blanket of the latent continuous target. all columns
+    numeric, fisher's-z ci test, for the synthetic recovery sweep."""
+    import rpy2.robjects as ro
+    from rpy2.robjects.conversion import localconverter
+
+    p = X.shape[1]
+    with localconverter(_R_CONVERTER):
+        ro.globalenv['Xmat'] = X[idx]
+        ro.globalenv['yvec'] = y_cont[idx].astype(float)
+    ro.r('''
+        df <- as.data.frame(Xmat)
+        names(df) <- paste0("x", seq_len(ncol(df)) - 1L)
+        df[["y"]] <- as.numeric(yvec)
+    ''')
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore')
+        ro.r(f'mb <- tryCatch(learn.mb(df, "y", method="iamb", test="{test}"), '
+             f'error=function(e) character(0))')
+    with localconverter(_R_CONVERTER):
+        mb = list(ro.r('mb'))
+    out = np.zeros(p, dtype=int)
+    for nm in mb:
+        if isinstance(nm, str) and nm.startswith('x') and nm[1:].isdigit():
+            out[int(nm[1:])] = 1
+    return out
+
+
+def iamb_stability_q(X: np.ndarray, y_continuous: np.ndarray, test: str = 'zf',
+                     B: int = 100, subsample_fraction: float = 0.5,
+                     rng: np.random.Generator | None = None) -> np.ndarray:
+    """subsample-stability q from bnlearn's iamb markov-blanket learner on continuous
+    gaussian data with fisher's-z, for the synthetic recovery sweep. q_j = freq over
+    B subsamples that feature j lands in the blanket of the latent continuous target.
+
+    uses y_continuous to match the pc/ges gaussian sources, so the three discovery
+    algorithms are compared on equal footing (the source axis). the real-data method
+    uses the mixed-data mi-cg variant instead (bnlearn_mb_stability_q)."""
+    if rng is None:
+        rng = np.random.default_rng()
+    n, p = X.shape
+    y_cont = np.asarray(y_continuous, dtype=float)
+    _init_R_bnlearn()
+    indices = [_subsample_indices(n, subsample_fraction, rng) for _ in range(B)]
+    blankets = [_iamb_gauss_one_subsample(idx, X, y_cont, test) for idx in indices]
+    return np.sum(blankets, axis=0) / B
+
+
 # full recovered cpdags: whole graph, not just adjacency to y.
 # the *_stability_q sources above collapse each run to a length-p adjacency-to-y
 # vector (all q needs). for orientation scoring and the consensus-graph picture

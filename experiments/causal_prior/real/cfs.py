@@ -9,11 +9,21 @@ hard 2x2 ablation.
 
 Arms (2x2 of source x use, plus vanilla and cfs_cg):
   vanilla     mu=0
-  causal      soft prior, q from ges_cg (conditional-gaussian)        [ours]
-  iamb_soft   soft prior, q from the same fisher-z search as cfs_iamb
-  cfs_iamb    hard pre-selection, pyCausalFS fisher-z (invalid on mixed data)
-  cfs_hiton_mb hard, pyCausalFS fisher-z
-  cfs_cg      hard, bnlearn mi-cg (the valid mixed-data causal selector)
+  causal       soft prior, q from ges_cg (conditional-gaussian)        [ours]
+  iamb_soft_cg soft prior, q from bnlearn iamb + mi-cg (valid mixed-data) [ours]
+  iamb_soft_fz soft prior, q from pyCausalFS iamb + fisher-z [ablation control]
+  cfs_iamb     hard pre-selection, pyCausalFS iamb + fisher-z (invalid on mixed data)
+  cfs_hiton_mb hard, pyCausalFS hiton-mb + fisher-z
+  cfs_cg       hard, bnlearn iamb + mi-cg (the valid mixed-data causal selector)
+
+the four iamb arms form a ci-test x use 2x2 so soft-vs-hard is never confounded
+with the ci test:
+  soft vs hard @ fisher-z: iamb_soft_fz vs cfs_iamb
+  soft vs hard @ mi-cg:    iamb_soft_cg vs cfs_cg
+  ci test @ soft:          iamb_soft_fz vs iamb_soft_cg
+  ci test @ hard:          cfs_iamb vs cfs_cg
+iamb_soft_fz is a control, not the deployed method (which ships mi-cg). the
+fisher-z cfs arms are Nataliya's requested off-the-shelf comparison.
 
 q-mode (auto): with --n-grid (scarcity sweep, e.g. FICO) q is discovered ONCE on a
 held-out set, disjoint from the eval pool and a fixed test set (leakage-free §6.2
@@ -41,19 +51,22 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO_ROOT))
 
 from src.causal_prior.cv_mu import cv_pick_mu  # noqa: E402
-from src.causal_prior.priors import bnlearn_mb, discover_q  # noqa: E402
+from src.causal_prior.priors import bnlearn_mb, bnlearn_mb_stability_q, discover_q  # noqa: E402
 from src.causal_prior.binarize import fit_binarizer, apply_binarizer  # noqa: E402
 from src.causal_prior.scorecard import import_fasterrisk  # noqa: E402
 from src.causal_prior.stability import mean_pairwise_jaccard, nogueira  # noqa: E402
-from src.causal_prior.baselines import cfs_fisherz, iamb_soft_q  # noqa: E402
+from src.causal_prior.baselines import cfs_fisherz, iamb_fisherz_stability_q  # noqa: E402
 from experiments._io import new_run_dir  # noqa: E402
 from experiments.causal_prior.real.datasets import load_dataset  # noqa: E402
 
-ARMS = ['vanilla', 'causal', 'iamb_soft', 'cfs_iamb', 'cfs_hiton_mb', 'cfs_cg']
+ARMS = ['vanilla', 'causal', 'iamb_soft_cg', 'iamb_soft_fz',
+        'cfs_iamb', 'cfs_hiton_mb', 'cfs_cg']
 LABELS = {'vanilla': 'vanilla', 'causal': 'causal (ges_cg, soft)',
-          'iamb_soft': 'iamb soft (fisher-z, soft)', 'cfs_iamb': 'cfs iamb (fisher-z, hard)',
+          'iamb_soft_cg': 'iamb soft (mi-cg, soft)',
+          'iamb_soft_fz': 'iamb soft (fisher-z, soft, control)',
+          'cfs_iamb': 'cfs iamb (fisher-z, hard)',
           'cfs_hiton_mb': 'cfs hiton-mb (hard)', 'cfs_cg': 'cfs cg (valid mi-cg)'}
-COLORS = {'vanilla': 'C0', 'causal': 'C1', 'iamb_soft': 'C4',
+COLORS = {'vanilla': 'C0', 'causal': 'C1', 'iamb_soft_cg': 'C4', 'iamb_soft_fz': 'C5',
           'cfs_iamb': '0.55', 'cfs_hiton_mb': '0.7', 'cfs_cg': 'C2'}
 SOLID = ['vanilla', 'causal', 'cfs_cg']  # headline tier drawn solid; rest dashed
 
@@ -67,7 +80,7 @@ def _blankets(Xs, ys, alpha):
                 'cfs_cg': bnlearn_mb(Xs, ys, method='iamb', test='mi-cg', alpha=alpha)}
 
 
-def _eval_split(Xtr_o, ytr, Xte_o, yte01, q_orig, qi_orig, mbs, names, k,
+def _eval_split(Xtr_o, ytr, Xte_o, yte01, q_orig, qi_cg_orig, qi_fz_orig, mbs, names, k,
                 n_thresholds, n_mu, mu_rel, n_cv, seed_tuple):
     """binarize train-only, fit every arm, score on the test rows. returns auc +
     original-feature support per arm (and the causal mu_hat_rel)."""
@@ -103,8 +116,10 @@ def _eval_split(Xtr_o, ytr, Xte_o, yte01, q_orig, qi_orig, mbs, names, k,
         rec['auc_vanilla'], rec['supp_vanilla'] = auc(van, all_cols), supp(all_cols, van.betas_[0])
         a, s, mh = soft_arm(q_orig, 1)
         rec['auc_causal'], rec['supp_causal'], rec['mu_hat_rel'] = a, s, mh
-        a, s, _ = soft_arm(qi_orig, 2)
-        rec['auc_iamb_soft'], rec['supp_iamb_soft'] = a, s
+        a, s, _ = soft_arm(qi_cg_orig, 2)
+        rec['auc_iamb_soft_cg'], rec['supp_iamb_soft_cg'] = a, s
+        a, s, _ = soft_arm(qi_fz_orig, 3)
+        rec['auc_iamb_soft_fz'], rec['supp_iamb_soft_fz'] = a, s
         for arm, mb in mbs.items():
             cols = all_cols[np.isin(parent, mb)] if mb else all_cols[:0]
             if len(cols) == 0:
@@ -115,22 +130,22 @@ def _eval_split(Xtr_o, ytr, Xte_o, yte01, q_orig, qi_orig, mbs, names, k,
     return rec
 
 
-def _unit_heldout(n, r, train_pool, test_abs, X_orig, y, q_orig, qi_orig, names, args):
+def _unit_heldout(n, r, train_pool, test_abs, X_orig, y, q_orig, qi_cg_orig, qi_fz_orig, names, args):
     """one resample at size n: q fixed (discovered once on the held-out set), cfs
     blankets re-selected on the subsample, fixed test set."""
     sub = np.random.default_rng((args.seed, n, r)).choice(train_pool, size=n, replace=False)
     Xs, ys = X_orig[sub], y[sub]
     mbs = _blankets(Xs, ys, args.alpha)
     rec = _eval_split(Xs, ys, X_orig[test_abs], (y[test_abs] > 0).astype(int),
-                      q_orig, qi_orig, mbs, names, args.k, args.n_thresholds, args.n_mu,
+                      q_orig, qi_cg_orig, qi_fz_orig, mbs, names, args.k, args.n_thresholds, args.n_mu,
                       args.mu_rel, args.n_cv, (args.seed, n, r))
     rec['n'], rec['rep'] = n, r
     return rec
 
 
 def _unit_resample(n, r, X_orig, y, names, args):
-    """one resample: a fresh stratified split; q, iamb_soft q and cfs blankets all
-    re-discovered on this split's train (honest for small data)."""
+    """one resample: a fresh stratified split; q, both iamb soft q's (mi-cg and the
+    fisher-z control) and cfs blankets all re-discovered on this split's train."""
     sss = StratifiedShuffleSplit(n_splits=1, test_size=args.test_frac, random_state=args.seed + r)
     (tr, te), = sss.split(X_orig, (y > 0).astype(int))
     if n is not None and n < len(tr):
@@ -139,9 +154,12 @@ def _unit_resample(n, r, X_orig, y, names, args):
     with warnings.catch_warnings():
         warnings.simplefilter('ignore')
         q = discover_q(args.qsrc, Xtr_o, ytr.astype(float), args.b, args.seed)
-        qi = iamb_soft_q(Xtr_o, ytr, args.alpha, args.b, np.random.default_rng((args.seed, n or 0, r, 9)))
+        qi_cg = bnlearn_mb_stability_q(Xtr_o, ytr, test='mi-cg', alpha=args.alpha, B=args.b,
+                                       rng=np.random.default_rng((args.seed, n or 0, r, 9)))
+        qi_fz = iamb_fisherz_stability_q(Xtr_o, ytr, args.alpha, args.b,
+                                         np.random.default_rng((args.seed, n or 0, r, 8)))
         mbs = _blankets(Xtr_o, ytr, args.alpha)
-    rec = _eval_split(Xtr_o, ytr, X_orig[te], (y[te] > 0).astype(int), q, qi, mbs, names,
+    rec = _eval_split(Xtr_o, ytr, X_orig[te], (y[te] > 0).astype(int), q, qi_cg, qi_fz, mbs, names,
                       args.k, args.n_thresholds, args.n_mu, args.mu_rel, args.n_cv,
                       (args.seed, n or 0, r))
     rec['n'], rec['rep'] = (n if n else len(tr)), r
@@ -176,9 +194,11 @@ def _contrasts(res):
         return float(np.mean(diff)), p
 
     causal = {a: paired('causal', a) for a in ARMS if a != 'causal'}
-    ablation = {'iamb_soft - cfs_iamb (soft vs hard, fisher-z)': paired('iamb_soft', 'cfs_iamb'),
-                'causal - cfs_cg (soft vs hard, cg)': paired('causal', 'cfs_cg'),
-                'causal - iamb_soft (cg vs fisher-z, both soft)': paired('causal', 'iamb_soft')}
+    # iamb ci-test x use 2x2: each contrast varies exactly one of {soft/hard, ci test}
+    ablation = {'iamb_soft_fz - cfs_iamb (soft vs hard, fisher-z)': paired('iamb_soft_fz', 'cfs_iamb'),
+                'iamb_soft_cg - cfs_cg (soft vs hard, mi-cg)': paired('iamb_soft_cg', 'cfs_cg'),
+                'iamb_soft_fz - iamb_soft_cg (fisher-z vs mi-cg, both soft)': paired('iamb_soft_fz', 'iamb_soft_cg'),
+                'cfs_iamb - cfs_cg (fisher-z vs mi-cg, both hard)': paired('cfs_iamb', 'cfs_cg')}
     return long, causal, ablation
 
 
@@ -233,10 +253,14 @@ def main():
         with warnings.catch_warnings():
             warnings.simplefilter('ignore')
             q_orig = discover_q(args.qsrc, X_orig[disc], y[disc].astype(float), args.b, args.seed)
-            qi_orig = iamb_soft_q(X_orig[disc], y[disc], args.alpha, args.b,
-                                  np.random.default_rng((args.seed, 99)))
+            qi_cg_orig = bnlearn_mb_stability_q(X_orig[disc], y[disc], test='mi-cg',
+                                                alpha=args.alpha, B=args.b,
+                                                rng=np.random.default_rng((args.seed, 99)))
+            qi_fz_orig = iamb_fisherz_stability_q(X_orig[disc], y[disc], args.alpha, args.b,
+                                                  np.random.default_rng((args.seed, 98)))
         jobs = [(n, r) for n in grid for r in range(args.reps)]
-        unit = lambda n, r: _unit_heldout(n, r, pool, test_abs, X_orig, y, q_orig, qi_orig, names, args)
+        unit = lambda n, r: _unit_heldout(n, r, pool, test_abs, X_orig, y,
+                                          q_orig, qi_cg_orig, qi_fz_orig, names, args)
     else:
         jobs = [(n, r) for n in grid for r in range(args.reps)]
         unit = lambda n, r: _unit_resample(n, r, X_orig, y, names, args)
