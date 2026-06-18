@@ -13,13 +13,14 @@ discovery is reliable). mu is reported both in raw units and as
 mu_relative = mu / mu_scale, where mu_scale = median |grad_j L| at w=0
 (computed in Phase A); cross-cell plots use mu_relative.
 
-Sources: oracle (sigma=0), uniform (0.5), adversarial, pc, ges,
-bootstrap_l1. Sources missing from the cell file (e.g. q_ges on dense
-legacy cells) are skipped. In addition, the hard-pre-selection
-baseline is run for the causal/predictive sources (pc, ges,
-bootstrap_l1) at thresholds {0.3, 0.5, 0.7}; these rows have
-q_source = '<source>_hard_t<threshold>', mu = 0, K reduced to the
-post-threshold feature count.
+Sources: oracle (sigma=0), uniform (0.5), adversarial, the three
+causal-discovery backends pc, ges, iamb (the source axis), and bootstrap_l1
+(the predictive contrast for the §6.1 mediation story). All read from the
+cell file as q_pc / q_ges / q_iamb / q_bootstrap_l1; missing ones are
+skipped. No hard-pre-selection baseline: soft-vs-hard is a downstream
+(real-data) point, not a synthetic-recovery one, since the soft prior's
+purpose is to keep FasterRisk a single integrated step rather than win
+recovery precision.
 
 Usage:
     python experiments/causal_prior/synthetic/recovery_sweep.py            # default cache, parallel
@@ -52,9 +53,7 @@ CACHE_DIR = REPO_ROOT / 'results' / 'causal_prior' / 'synthetic' / 'cache'
 OUT_DIR = REPO_ROOT / 'results' / 'causal_prior' / 'synthetic' / 'recovery'
 N_MU_LOG = 12          # log-spaced points in (mu_scale * 10^-2, mu_scale * 10^1)
 K_MULTIPLIER = 2       # K = K_MULTIPLIER * k_star
-SOURCES = ('oracle', 'uniform', 'adversarial', 'pc', 'ges', 'bootstrap_l1')
-HARD_THRESHOLDS = (0.3, 0.5, 0.7)  # MB-standard thresholds for the hard-pre-selection baseline
-HARD_BASELINE_SOURCES = ('pc', 'ges', 'bootstrap_l1')  # only causal/predictive sources, not the synthetic q's
+SOURCES = ('oracle', 'uniform', 'adversarial', 'pc', 'ges', 'iamb', 'bootstrap_l1')
 
 CSV_FIELDS = [
     'seed', 'p', 'n', 'k_star', 'p_edge', 'noise_scale', 'mu_scale',
@@ -66,7 +65,7 @@ CSV_FIELDS = [
 ]
 
 
-def _import_fasterrisk():
+def import_fasterrisk():
     """Defer FR import: it warns about R bindings on every fresh worker."""
     with warnings.catch_warnings():
         warnings.simplefilter('ignore')
@@ -82,7 +81,7 @@ def build_q_sources(cell, p: int, S_star: list[int],
         'uniform':     uniform_q(p, 0.5),
         'adversarial': adversarial_q(p, confounded),
     }
-    for key in ('q_pc', 'q_ges', 'q_bootstrap_l1'):
+    for key in ('q_pc', 'q_ges', 'q_iamb', 'q_bootstrap_l1'):
         if key in cell.files:
             sources[key.removeprefix('q_')] = cell[key]
     return sources
@@ -99,28 +98,6 @@ def fit_and_score(FasterRisk, X: np.ndarray, y: np.ndarray, K: int,
     betas = fr.betas_[0]
     support = sorted(int(j) for j in np.where(np.abs(betas) > 0)[0])
     return support, time.time() - t
-
-
-def fit_hard_threshold(FasterRisk, X: np.ndarray, y: np.ndarray, K: int,
-                       q: np.ndarray, t: float) -> tuple[list[int], int, float]:
-    """Hard pre-selection baseline: restrict to features with q_j >= t, vanilla FR.
-
-    Returns (support_global, K_effective, fit_seconds). K is capped at the
-    pre-selected feature count; if the threshold leaves no features, returns
-    an empty support immediately.
-    """
-    mask = q >= t
-    if not mask.any():
-        return [], 0, 0.0
-    K_eff = min(K, int(mask.sum()))
-    fr = FasterRisk(k=K_eff, mu=0.0, freq=None)
-    start = time.time()
-    fr.fit(X[:, mask], y)
-    elapsed = time.time() - start
-    betas = fr.betas_[0]
-    selected_local = np.where(np.abs(betas) > 0)[0]
-    global_indices = np.where(mask)[0][selected_local]
-    return sorted(int(j) for j in global_indices), K_eff, elapsed
 
 
 def process_cell(cell_path: Path, out_path: Path, n_mu_log: int) -> str:
@@ -143,7 +120,7 @@ def process_cell(cell_path: Path, out_path: Path, n_mu_log: int) -> str:
     part = causal_partition(int(cell['seed']), p, float(cell['p_edge']), k_star)
     causes, correlates = part['all_causes'], part['correlates']
 
-    FasterRisk = _import_fasterrisk()
+    FasterRisk = import_fasterrisk()
     sources = build_q_sources(cell, p, S_star_list, confounded_list)
 
     rows: list[dict] = []
@@ -165,28 +142,6 @@ def process_cell(cell_path: Path, out_path: Path, n_mu_log: int) -> str:
                 'q_source': q_source,
                 'mu': float(mu), 'mu_relative': float(mu_rel),
                 'K': K,
-                'support': json.dumps(support), 'k_actual': m['k_actual'],
-                'S_recall': m['S_recall'], 'S_precision': m['S_precision'],
-                'C_inclusion': m['C_inclusion'],
-                'causal_precision': m['causal_precision'],
-                'correlate_inclusion': m['correlate_inclusion'],
-                'fit_seconds': fit_seconds,
-            })
-
-    # hard pre-selection baseline: q-threshold + vanilla FasterRisk
-    for q_name in HARD_BASELINE_SOURCES:
-        if q_name not in sources:
-            continue
-        for t_thresh in HARD_THRESHOLDS:
-            support, K_eff, fit_seconds = fit_hard_threshold(
-                FasterRisk, X, y, K, sources[q_name], t_thresh,
-            )
-            m = support_recovery_metrics(support, S_set, C_set,
-                                         causes=causes, correlates=correlates)
-            rows.append({**base_id,
-                'q_source': f'{q_name}_hard_t{t_thresh}',
-                'mu': 0.0, 'mu_relative': 0.0,
-                'K': K_eff,
                 'support': json.dumps(support), 'k_actual': m['k_actual'],
                 'S_recall': m['S_recall'], 'S_precision': m['S_precision'],
                 'C_inclusion': m['C_inclusion'],

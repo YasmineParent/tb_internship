@@ -30,7 +30,7 @@ from experiments.causal_prior.synthetic.config import (  # noqa: E402
 )
 from src.data.synthetic_lingauss import LinGaussSyntheticData  # noqa: E402
 from src.causal_prior.priors import (  # noqa: E402
-    pc_stability_q, ges_stability_q, bootstrap_l1_q,
+    pc_stability_q, ges_stability_q, bootstrap_l1_q, iamb_stability_q,
 )
 
 
@@ -47,7 +47,8 @@ def compute_mu_scale(X: np.ndarray, y: np.ndarray) -> float:
     return float(np.median(0.5 * np.abs(X.T @ y)))
 
 
-SOURCES = ('pc', 'ges', 'bootstrap_l1')
+SOURCES = ('pc', 'ges', 'iamb', 'bootstrap_l1')              # valid choices
+DEFAULT_SOURCES = ('pc', 'ges', 'iamb', 'bootstrap_l1')      # causal backends + predictive contrast
 
 
 def process_cell(cell: Cell, B: int, cache_dir: Path, force: bool,
@@ -65,9 +66,10 @@ def process_cell(cell: Cell, B: int, cache_dir: Path, force: bool,
     mu_scale = compute_mu_scale(data.X, data.y)
 
     # derive per-source RNGs from the cell seed so reruns are reproducible
-    rng_pc  = np.random.default_rng((cell.seed, 0))
-    rng_ges = np.random.default_rng((cell.seed, 1))
-    rng_l1  = np.random.default_rng((cell.seed, 2))
+    rng_pc   = np.random.default_rng((cell.seed, 0))
+    rng_ges  = np.random.default_rng((cell.seed, 1))
+    rng_l1   = np.random.default_rng((cell.seed, 2))
+    rng_iamb = np.random.default_rng((cell.seed, 3))
 
     qs: dict[str, np.ndarray] = {}
     timings: dict[str, float] = {}
@@ -78,8 +80,18 @@ def process_cell(cell: Cell, B: int, cache_dir: Path, force: bool,
         t = time.time()
         qs['q_ges'], ges_timeouts = ges_stability_q(data.X, data.y_continuous, B=B, rng=rng_ges)
         timings['ges'] = time.time() - t
+    if 'iamb' in sources:
+        t = time.time(); qs['q_iamb'] = iamb_stability_q(data.X, data.y_continuous, B=B, rng=rng_iamb); timings['iamb'] = time.time() - t
     if 'bootstrap_l1' in sources:
         t = time.time(); qs['q_bootstrap_l1'] = bootstrap_l1_q(data.X, data.y, B=B, rng=rng_l1); timings['l1']  = time.time() - t
+
+    # merge-aware: carry forward q sources already cached and not recomputed here, so
+    # adding a new source (e.g. iamb) does not clobber existing pc/ges with --force.
+    if out_path.exists():
+        with np.load(out_path) as prev:
+            for key in prev.files:
+                if key.startswith('q_') and key not in qs:
+                    qs[key] = prev[key]
 
     np.savez(
         out_path,
@@ -113,7 +125,7 @@ def main() -> None:
     parser.add_argument('--cache-dir', type=Path, default=CACHE_DIR)
     parser.add_argument('--B', type=int, default=100,
                         help='bootstrap count for stability sources')
-    parser.add_argument('--sources', type=str, default=','.join(SOURCES),
+    parser.add_argument('--sources', type=str, default=','.join(DEFAULT_SOURCES),
                         help=('comma-separated subset of stability sources to compute. '
                               f'choices: {SOURCES}; default: all'))
     parser.add_argument('--force', action='store_true',
