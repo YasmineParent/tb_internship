@@ -376,7 +376,7 @@ def bnlearn_mb_stability_q(X: np.ndarray, y: np.ndarray, test: str = 'mi-cg',
 
 
 def _iamb_gauss_one_subsample(idx: np.ndarray, X: np.ndarray, y_cont: np.ndarray,
-                              test: str) -> np.ndarray:
+                              test: str, alpha: float) -> np.ndarray:
     """one bnlearn iamb markov-blanket learn on a continuous (gaussian) subsample;
     length-p indicator of the blanket of the latent continuous target. all columns
     numeric, fisher's-z ci test, for the synthetic recovery sweep."""
@@ -394,8 +394,8 @@ def _iamb_gauss_one_subsample(idx: np.ndarray, X: np.ndarray, y_cont: np.ndarray
     ''')
     with warnings.catch_warnings():
         warnings.simplefilter('ignore')
-        ro.r(f'mb <- tryCatch(learn.mb(df, "y", method="iamb", test="{test}"), '
-             f'error=function(e) character(0))')
+        ro.r(f'mb <- tryCatch(learn.mb(df, "y", method="iamb", test="{test}", '
+             f'alpha={alpha}), error=function(e) character(0))')
     with localconverter(_R_CONVERTER):
         mb = list(ro.r('mb'))
     out = np.zeros(p, dtype=int)
@@ -406,22 +406,24 @@ def _iamb_gauss_one_subsample(idx: np.ndarray, X: np.ndarray, y_cont: np.ndarray
 
 
 def iamb_stability_q(X: np.ndarray, y_continuous: np.ndarray, test: str = 'zf',
-                     B: int = 100, subsample_fraction: float = 0.5,
+                     alpha: float = 0.1, B: int = 100,
+                     subsample_fraction: float = 0.5,
                      rng: np.random.Generator | None = None) -> np.ndarray:
     """subsample-stability q from bnlearn's iamb markov-blanket learner on continuous
     gaussian data with fisher's-z, for the synthetic recovery sweep. q_j = freq over
     B subsamples that feature j lands in the blanket of the latent continuous target.
 
-    uses y_continuous to match the pc/ges gaussian sources, so the three discovery
-    algorithms are compared on equal footing (the source axis). the real-data method
-    uses the mixed-data mi-cg variant instead (bnlearn_mb_stability_q)."""
+    uses y_continuous to match the pc/ges gaussian sources, and alpha defaults to 0.1
+    to match the pc source (pc_stability_q), so the constraint-based backends are
+    compared on equal footing (the source axis). the real-data method uses the
+    mixed-data mi-cg variant instead (bnlearn_mb_stability_q, alpha 0.05)."""
     if rng is None:
         rng = np.random.default_rng()
     n, p = X.shape
     y_cont = np.asarray(y_continuous, dtype=float)
     _init_R_bnlearn()
     indices = [_subsample_indices(n, subsample_fraction, rng) for _ in range(B)]
-    blankets = [_iamb_gauss_one_subsample(idx, X, y_cont, test) for idx in indices]
+    blankets = [_iamb_gauss_one_subsample(idx, X, y_cont, test, alpha) for idx in indices]
     return np.sum(blankets, axis=0) / B
 
 

@@ -61,14 +61,6 @@ from experiments.causal_prior.real.datasets import load_dataset  # noqa: E402
 
 ARMS = ['vanilla', 'causal', 'iamb_soft_cg', 'iamb_soft_fz',
         'cfs_iamb', 'cfs_hiton_mb', 'cfs_cg']
-LABELS = {'vanilla': 'vanilla', 'causal': 'causal (ges_cg, soft)',
-          'iamb_soft_cg': 'iamb soft (mi-cg, soft)',
-          'iamb_soft_fz': 'iamb soft (fisher-z, soft, control)',
-          'cfs_iamb': 'cfs iamb (fisher-z, hard)',
-          'cfs_hiton_mb': 'cfs hiton-mb (hard)', 'cfs_cg': 'cfs cg (valid mi-cg)'}
-COLORS = {'vanilla': 'C0', 'causal': 'C1', 'iamb_soft_cg': 'C4', 'iamb_soft_fz': 'C5',
-          'cfs_iamb': '0.55', 'cfs_hiton_mb': '0.7', 'cfs_cg': 'C2'}
-SOLID = ['vanilla', 'causal', 'cfs_cg']  # headline tier drawn solid; rest dashed
 
 
 def _blankets(Xs, ys, alpha):
