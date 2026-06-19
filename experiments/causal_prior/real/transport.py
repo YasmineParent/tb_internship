@@ -129,6 +129,26 @@ def main():
     for a, mb in mbs.items():
         print(f'  {a}: |MB|={len(mb)}', flush=True)
 
+    # cross-environment (invariance) q: discover on each extra source state under the
+    # same encoder and aggregate, so state-specific correlates (POBP) wash out while
+    # invariantly-selected causes survive. this is the fix for the single-state q that
+    # inherits environment-specific correlates.
+    cross = [c for c in args.cross_states.split(',') if c]
+    q_ce = None
+    if cross:
+        print(f'cross-environment q over {[args.source] + cross} (agg={args.ce_agg})...', flush=True)
+        per_state = [q]
+        for c in cross:
+            Xc, _, yc = encode(load_raw(c, args.year), enc)
+            dc = np.random.default_rng((args.seed, abs(hash(c)) % 9973)).permutation(len(yc))[:args.n_disc]
+            with warnings.catch_warnings():
+                warnings.simplefilter('ignore')
+                per_state.append(discover_q('ges_cg', Xc[dc], yc[dc].astype(float), args.b, args.seed))
+        Q = np.vstack(per_state)
+        q_ce = Q.min(0) if args.ce_agg == 'min' else Q.mean(0)
+        top = names[np.argsort(-q_ce)[:6]]
+        print(f'  top cross-env features: {list(top)}', flush=True)
+
     mu_grid = [0.0] + args.mu_rel
     rows = []
     for s in range(args.reps):
@@ -158,6 +178,16 @@ def main():
                 for t, (Xtb, ytb) in tgt_bin.items():
                     rec[f'auc_{t}'] = _auc(fr, all_cols, Xtb, ytb)
                 rows.append(rec)
+            if q_ce is not None:  # cross-environment invariance prior, same mu sweep
+                q_ce_bin = q_ce[parent]
+                for mr in args.mu_rel:
+                    fr = FR(k=args.k, mu=mr * mu_scale, freq=q_ce_bin.astype(float))
+                    fr.fit(Xtr, ysrc[tr])
+                    rec = {'seed': s, 'arm': 'causal_ce', 'mu_rel': mr,
+                           'auc_source': _auc(fr, all_cols, Xte_src, yte01)}
+                    for t, (Xtb, ytb) in tgt_bin.items():
+                        rec[f'auc_{t}'] = _auc(fr, all_cols, Xtb, ytb)
+                    rows.append(rec)
             for arm, mb in mbs.items():
                 cols = all_cols[np.isin(parent, mb)] if mb else all_cols[:0]
                 fr = None if len(cols) == 0 else FR(k=args.k, mu=0.0, freq=None)
@@ -223,6 +253,12 @@ def parse_args():
     p.add_argument('--alpha', type=float, default=0.05)
     p.add_argument('--n_thresholds', type=int, default=4)
     p.add_argument('--seed', type=int, default=0)
+    p.add_argument('--cross-states', default='',
+                   help='extra source states for the cross-environment (invariance) q, '
+                        'e.g. "TX,NY,FL"; the prior keeps features selected consistently '
+                        'across them, down-weighting state-specific correlates. empty = off.')
+    p.add_argument('--ce-agg', choices=['mean', 'min'], default='mean',
+                   help='aggregate the per-state q into the invariance prior (min = strict)')
     p.add_argument('--smoke', action='store_true')
     args = p.parse_args()
     if args.smoke:
