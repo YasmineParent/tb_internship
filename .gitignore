@@ -6,9 +6,9 @@ __pycache__/
 .DS_Store
 .claude/
 *.log
-# notes: keep only the two public docs, ignore all other working notes
+# notes: keep only the public docs, ignore all other working notes
 notes/*
-!notes/pipeline.ipynb
+!notes/pipeline.md
 !notes/perturbation_theorem.md
 
 # large downloaded data and vendored, not-on-pypi dependency
