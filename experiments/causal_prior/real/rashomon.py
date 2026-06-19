@@ -17,6 +17,7 @@ usage:
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 import warnings
 from pathlib import Path
@@ -64,17 +65,21 @@ def parse_args():
     return args
 
 
-def pool_rows(fr, q_bin, Xte, yte, arm):
-    """one row per diverse-pool member: support size, support q-mass, test auc."""
+def pool_rows(fr, q_bin, Xte, yte, arm, parent, names):
+    """one row per diverse-pool member: support size, support q-mass, test auc, and the
+    original-feature support (json list of names) so pool members can be compared at the
+    feature level (the predictive-multiplicity / one-card-resolution figure)."""
     rows = []
     for m in range(len(fr.betas_)):
         supp = np.nonzero(np.asarray(fr.betas_[m]))[0]
         if len(supp) == 0:
             continue
+        feats = sorted(set(np.asarray(names)[parent[supp]].tolist()))
         p = np.clip(fr.predict_proba(Xte, model_idx=m), 1e-7, 1 - 1e-7)
         rows.append({'arm': arm, 'member': m, 'nfeat': int(len(supp)),
                      'q_mass': float(np.mean(q_bin[supp])),
-                     'auc': float(roc_auc_score(yte, p))})
+                     'auc': float(roc_auc_score(yte, p)),
+                     'support': json.dumps(feats)})
     return rows
 
 
@@ -115,8 +120,8 @@ def main():
         cau = FR(k=args.k, mu=float(mu_star), freq=q_bin.astype(float)); cau.fit(Xtr, ytr)
     mu_hat_rel = mu_star / (mu_scale or 1.0)
 
-    pool = pd.DataFrame(pool_rows(van, q_bin, Xte, yte, 'vanilla')
-                        + pool_rows(cau, q_bin, Xte, yte, 'causal'))
+    pool = pd.DataFrame(pool_rows(van, q_bin, Xte, yte, 'vanilla', parent, names)
+                        + pool_rows(cau, q_bin, Xte, yte, 'causal', parent, names))
     # matched-accuracy band: only members within --auc-band of the best member
     # across both pools, so the q-mass comparison is not confounded by an auc shift
     auc_floor = pool['auc'].max() - args.auc_band

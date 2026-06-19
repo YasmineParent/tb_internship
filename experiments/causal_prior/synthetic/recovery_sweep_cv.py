@@ -46,7 +46,7 @@ OUT_DIR = REPO_ROOT / 'results' / 'causal_prior' / 'synthetic' / 'recovery_cv'
 N_MU_LOG = 12
 DEFAULT_K_MULTIPLIERS = (2.0,)
 N_SPLITS = 5
-SOURCES = ('oracle', 'uniform', 'adversarial', 'pc', 'ges', 'bootstrap_l1')
+SOURCES = ('oracle', 'uniform', 'adversarial', 'pc', 'ges', 'iamb', 'bootstrap_l1')
 
 CSV_FIELDS = [
     'seed', 'p', 'n', 'k_star', 'p_edge', 'noise_scale', 'mu_scale',
@@ -67,7 +67,7 @@ def build_q_sources(cell, p: int, S_star: list[int],
         'uniform':     uniform_q(p, 0.5),
         'adversarial': adversarial_q(p, confounded),
     }
-    for key in ('q_pc', 'q_ges', 'q_bootstrap_l1'):
+    for key in ('q_pc', 'q_ges', 'q_iamb', 'q_bootstrap_l1'):
         if key in cell.files:
             sources[key.removeprefix('q_')] = cell[key]
     return sources

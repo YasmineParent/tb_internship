@@ -249,3 +249,57 @@ def aggregate_seeds(
     agg = df.groupby(list(by), dropna=False)[list(metrics)].agg(['mean', 'sem'])
     agg.columns = [f'{metric}_{stat}' for metric, stat in agg.columns]
     return agg.reset_index()
+
+
+def mb_recovery_table(cache_dir: Path | str, threshold: float = 0.5,
+                      sources: Sequence[str] = ('ges', 'pc', 'iamb', 'bootstrap_l1')
+                      ) -> pd.DataFrame:
+    """markov-blanket recovery quality per discovery source, scored against the true
+    blanket. in these synthetic dags Y is a sink, so MB(Y) = Pa(Y) = S_star; the
+    recovered blanket is {j : q_j >= threshold}. returns mean precision/recall/f1 over
+    cells, one row per source. no fasterrisk step: this is the raw quality of the
+    discovered q, the foundation of the soft markov-blanket prior story."""
+    rows = []
+    for f in sorted(Path(cache_dir).glob('*.npz')):
+        d = np.load(f)
+        s_star = {int(j) for j in d['S_star']}
+        for src in sources:
+            key = f'q_{src}'
+            if key not in d.files:
+                continue
+            mb = {int(j) for j in np.where(d[key] >= threshold)[0]}
+            tp = len(mb & s_star)
+            prec = tp / len(mb) if mb else np.nan
+            rec = tp / len(s_star) if s_star else np.nan
+            f1 = (np.nan if (np.isnan(prec) or prec + rec == 0)
+                  else 2 * prec * rec / (prec + rec))
+            rows.append({'source': src, 'precision': prec, 'recall': rec, 'f1': f1})
+    df = pd.DataFrame(rows)
+    order = [s for s in sources if s in df['source'].unique()]
+    return df.groupby('source')[['precision', 'recall', 'f1']].mean().round(3).reindex(order)
+
+
+def mb_recovery_vs_axis(cache_dir: Path | str, axis: str = 'n', threshold: float = 0.5,
+                        sources: Sequence[str] = ('ges', 'iamb', 'bootstrap_l1')
+                        ) -> pd.DataFrame:
+    """markov-blanket recovery F1 vs a cell axis (n, p, p_edge, k_star), one column per
+    source. shows where MB recovery holds and where it degrades (the scarce-n boundary).
+    averages over the cells that vary that axis; uses the true blanket S_star."""
+    rows = []
+    for f in sorted(Path(cache_dir).glob('*.npz')):
+        d = np.load(f)
+        s_star = {int(j) for j in d['S_star']}
+        ax = float(d[axis])
+        for src in sources:
+            key = f'q_{src}'
+            if key not in d.files:
+                continue
+            mb = {int(j) for j in np.where(d[key] >= threshold)[0]}
+            tp = len(mb & s_star)
+            prec = tp / len(mb) if mb else np.nan
+            rec = tp / len(s_star) if s_star else np.nan
+            f1 = (np.nan if (np.isnan(prec) or prec + rec == 0)
+                  else 2 * prec * rec / (prec + rec))
+            rows.append({axis: ax, 'source': src, 'f1': f1})
+    df = pd.DataFrame(rows)
+    return df.groupby([axis, 'source'])['f1'].mean().unstack().round(3)

@@ -40,6 +40,11 @@ def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument('--dataset', default='heart')
     p.add_argument('--qsrc', default='ges_cg')
+    p.add_argument('--arms', default='all',
+                   help="comma-separated arms to run, or 'all'")
+    p.add_argument('--n-cap', type=int, default=None,
+                   help='subsample the whole dataset to this many rows (for big datasets, '
+                        'so the full cfs comparison stays tractable)')
     p.add_argument('--reps', type=int, default=25)
     p.add_argument('--b', type=int, default=40)
     p.add_argument('--alpha', type=float, default=0.05)
@@ -56,10 +61,19 @@ def parse_args():
     return args
 
 
+ALL_ARMS = ['vanilla', 'causal', 'iamb_soft_cg', 'iamb_soft_fz',
+            'cfs_iamb', 'cfs_hiton_mb', 'cfs_cg']
+
+
 def main():
     args = parse_args()
+    want = set(ALL_ARMS) if args.arms == 'all' else {a.strip() for a in args.arms.split(',')}
     X_orig, names, y = load_dataset(args.dataset, args)
-    print(f'{args.dataset}: n={len(y)}, features={len(names)}, positive={(y > 0).mean():.0%}', flush=True)
+    if args.n_cap and len(y) > args.n_cap:
+        idx = np.random.default_rng(args.seed).choice(len(y), size=args.n_cap, replace=False)
+        X_orig, y = X_orig[idx], y[idx]
+    print(f'{args.dataset}: n={len(y)}, features={len(names)}, positive={(y > 0).mean():.0%}, '
+          f'arms={sorted(want)}', flush=True)
     FR = import_fasterrisk()
     k_ref = max(K_GRID)
     rows = []
@@ -71,17 +85,26 @@ def main():
         Xtr_o, ytr = X_orig[tr], y[tr]
         Xte_o, yte = X_orig[te], (y[te] > 0).astype(int)
 
-        # discover once per resample (leakage-free: train rows only)
+        # discover once per resample (leakage-free: train rows only); only the
+        # requested arms are discovered, so big datasets can skip the slow mi-cg/cfs.
+        q = qi_cg = qi_fz = None
+        mbs = {}
         with warnings.catch_warnings():
             warnings.simplefilter('ignore')
-            q = discover_q(args.qsrc, Xtr_o, ytr.astype(float), args.b, args.seed)
-            qi_cg = bnlearn_mb_stability_q(Xtr_o, ytr, test='mi-cg', alpha=args.alpha,
-                                           B=args.b, rng=np.random.default_rng((args.seed, r, 9)))
-            qi_fz = iamb_fisherz_stability_q(Xtr_o, ytr, args.alpha, args.b,
-                                             np.random.default_rng((args.seed, r, 8)))
-            mbs = {'cfs_iamb': cfs_fisherz('iamb', Xtr_o, ytr, args.alpha),
-                   'cfs_hiton_mb': cfs_fisherz('hiton_mb', Xtr_o, ytr, args.alpha),
-                   'cfs_cg': bnlearn_mb(Xtr_o, ytr, method='iamb', test='mi-cg', alpha=args.alpha)}
+            if 'causal' in want:
+                q = discover_q(args.qsrc, Xtr_o, ytr.astype(float), args.b, args.seed)
+            if 'iamb_soft_cg' in want:
+                qi_cg = bnlearn_mb_stability_q(Xtr_o, ytr, test='mi-cg', alpha=args.alpha,
+                                               B=args.b, rng=np.random.default_rng((args.seed, r, 9)))
+            if 'iamb_soft_fz' in want:
+                qi_fz = iamb_fisherz_stability_q(Xtr_o, ytr, args.alpha, args.b,
+                                                 np.random.default_rng((args.seed, r, 8)))
+            if 'cfs_iamb' in want:
+                mbs['cfs_iamb'] = cfs_fisherz('iamb', Xtr_o, ytr, args.alpha)
+            if 'cfs_hiton_mb' in want:
+                mbs['cfs_hiton_mb'] = cfs_fisherz('hiton_mb', Xtr_o, ytr, args.alpha)
+            if 'cfs_cg' in want:
+                mbs['cfs_cg'] = bnlearn_mb(Xtr_o, ytr, method='iamb', test='mi-cg', alpha=args.alpha)
 
         # binarize on train rows only
         spec, _, parent = fit_binarizer(Xtr_o, names.tolist(), args.n_thresholds)
@@ -98,6 +121,8 @@ def main():
         with warnings.catch_warnings():
             warnings.simplefilter('ignore')
             for arm, qv, tag in [('causal', q, 1), ('iamb_soft_cg', qi_cg, 2), ('iamb_soft_fz', qi_fz, 3)]:
+                if arm not in want:
+                    continue
                 qb = qv[parent]
                 mu = cv_pick_mu(Xtr, ytr, K=k_ref, mu_grid=mu_grid, q=qb, n_splits=args.n_cv,
                                 criterion='log_loss',
@@ -105,8 +130,9 @@ def main():
                 soft[arm] = (qb, float(mu))
 
             for k in K_GRID:
-                v = FR(k=k, mu=0.0, freq=None); v.fit(Xtr, ytr)
-                rows.append((r, 'vanilla', k, auc(v, allc)))
+                if 'vanilla' in want:
+                    v = FR(k=k, mu=0.0, freq=None); v.fit(Xtr, ytr)
+                    rows.append((r, 'vanilla', k, auc(v, allc)))
                 for arm, (qb, mu) in soft.items():
                     fr = FR(k=k, mu=mu, freq=qb.astype(float)); fr.fit(Xtr, ytr)
                     rows.append((r, arm, k, auc(fr, allc)))

@@ -19,6 +19,7 @@ import matplotlib.pyplot as plt
 _RESULTS = Path(__file__).resolve().parents[2] / 'results' / 'causal_prior'
 _CFS = _RESULTS / 'cfs'
 _KSWEEP = _RESULTS / 'ksweep'
+_RUNTIME = _RESULTS / 'real' / 'runtime' / 'runtime.csv'
 
 BENCHMARKS = ['fico', 'heart', 'mammographic', 'ilpd', 'hepatitis', 'german']
 # in-regime: enough samples per feature for causal discovery to be feasible.
@@ -226,3 +227,31 @@ def plot_ksweep_grid(ksweep: dict, arms: list[str] | None = None):
     h, lab = axes.ravel()[0].get_legend_handles_labels()
     fig.legend(h, lab, loc='lower center', ncol=4, fontsize=8, bbox_to_anchor=(0.5, -0.01))
     fig.tight_layout(rect=[0, 0.05, 1, 1])
+
+
+# variant order for the runtime tables: baselines, then ours (fast deployed, full tuned)
+_RT_VARIANTS = ['vanilla', 'cfs_hard', 'ours_fast', 'ours_full']
+_RT_LABEL = {'vanilla': 'vanilla', 'cfs_hard': 'CFS (hard)',
+             'ours_fast': 'ours (fast)', 'ours_full': 'ours (CV-tuned)'}
+
+
+def load_runtime() -> pd.DataFrame | None:
+    """per-dataset runtime + AUC table written by experiments/.../runtime_bench.py.
+    one row per benchmark; columns t_/auc_ per variant. None if not run yet."""
+    return pd.read_csv(_RUNTIME) if _RUNTIME.exists() else None
+
+
+def runtime_table(rt: pd.DataFrame) -> pd.DataFrame:
+    """per-deployment wall-clock seconds per variant, plus the fast-vs-tuned speedup.
+    ours_fast is discovery + one fit at a fixed mu; ours_full adds the mu-cv grid."""
+    cols = {_RT_LABEL[v]: rt[f't_{v}'].round(1) for v in _RT_VARIANTS}
+    out = pd.DataFrame({'dataset': rt['dataset'], **cols,
+                        'speedup (fast/full)': (rt['t_ours_full'] / rt['t_ours_fast']).round(0)})
+    return out.set_index('dataset')
+
+
+def runtime_auc_table(rt: pd.DataFrame) -> pd.DataFrame:
+    """test AUC per variant at the timed split, same column order as the time table,
+    so equal accuracy at far less compute reads straight across the two tables."""
+    cols = {_RT_LABEL[v]: rt[f'auc_{v}'].round(3) for v in _RT_VARIANTS}
+    return pd.DataFrame({'dataset': rt['dataset'], **cols}).set_index('dataset')

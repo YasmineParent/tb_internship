@@ -23,6 +23,7 @@ SOURCE_COLORS: dict[str, str] = {
     'oracle':       plt.cm.tab10(3),  # red
     'ges':          plt.cm.tab10(2),  # green
     'pc':           plt.cm.tab10(0),  # blue
+    'iamb':         plt.cm.tab10(4),  # purple
     'bootstrap_l1': plt.cm.tab10(1),  # orange
     'uniform':      'gray',
     'adversarial':  'black',
@@ -32,12 +33,13 @@ SOURCE_LINESTYLES: dict[str, str] = {
     'oracle':       '-',
     'ges':          '-',
     'pc':           '-',
+    'iamb':         '-',
     'bootstrap_l1': '-',
     'uniform':      ':',
     'adversarial':  '--',
 }
 
-SOURCE_ORDER: list[str] = ['oracle', 'ges', 'pc', 'bootstrap_l1', 'uniform', 'adversarial']
+SOURCE_ORDER: list[str] = ['oracle', 'ges', 'pc', 'iamb', 'bootstrap_l1', 'uniform', 'adversarial']
 
 SOURCE_LABELS: dict[str, str] = {
     'oracle':       'oracle',
@@ -45,6 +47,7 @@ SOURCE_LABELS: dict[str, str] = {
     'adversarial':  'adversarial',
     'pc':           'PC',
     'ges':          'GES',
+    'iamb':         'IAMB',
     'bootstrap_l1': 'bootstrap-$L_1$',
 }
 

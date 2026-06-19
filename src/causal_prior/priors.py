@@ -376,10 +376,11 @@ def bnlearn_mb_stability_q(X: np.ndarray, y: np.ndarray, test: str = 'mi-cg',
 
 
 def _iamb_gauss_one_subsample(idx: np.ndarray, X: np.ndarray, y_cont: np.ndarray,
-                              test: str, alpha: float) -> np.ndarray:
-    """one bnlearn iamb markov-blanket learn on a continuous (gaussian) subsample;
-    length-p indicator of the blanket of the latent continuous target. all columns
-    numeric, fisher's-z ci test, for the synthetic recovery sweep."""
+                              test: str, alpha: float, method: str = 'iamb') -> np.ndarray:
+    """one bnlearn markov-blanket learn on a continuous (gaussian) subsample; length-p
+    indicator of the blanket of the latent continuous target. method is any bnlearn
+    learn.mb algorithm (iamb, fast.iamb, inter.iamb, iamb.fw, gs). all columns numeric,
+    fisher's-z ci test, for the synthetic recovery sweep."""
     import rpy2.robjects as ro
     from rpy2.robjects.conversion import localconverter
 
@@ -394,7 +395,7 @@ def _iamb_gauss_one_subsample(idx: np.ndarray, X: np.ndarray, y_cont: np.ndarray
     ''')
     with warnings.catch_warnings():
         warnings.simplefilter('ignore')
-        ro.r(f'mb <- tryCatch(learn.mb(df, "y", method="iamb", test="{test}", '
+        ro.r(f'mb <- tryCatch(learn.mb(df, "y", method="{method}", test="{test}", '
              f'alpha={alpha}), error=function(e) character(0))')
     with localconverter(_R_CONVERTER):
         mb = list(ro.r('mb'))
@@ -408,7 +409,8 @@ def _iamb_gauss_one_subsample(idx: np.ndarray, X: np.ndarray, y_cont: np.ndarray
 def iamb_stability_q(X: np.ndarray, y_continuous: np.ndarray, test: str = 'zf',
                      alpha: float = 0.1, B: int = 100,
                      subsample_fraction: float = 0.5,
-                     rng: np.random.Generator | None = None) -> np.ndarray:
+                     rng: np.random.Generator | None = None,
+                     method: str = 'iamb') -> np.ndarray:
     """subsample-stability q from bnlearn's iamb markov-blanket learner on continuous
     gaussian data with fisher's-z, for the synthetic recovery sweep. q_j = freq over
     B subsamples that feature j lands in the blanket of the latent continuous target.
@@ -423,7 +425,7 @@ def iamb_stability_q(X: np.ndarray, y_continuous: np.ndarray, test: str = 'zf',
     y_cont = np.asarray(y_continuous, dtype=float)
     _init_R_bnlearn()
     indices = [_subsample_indices(n, subsample_fraction, rng) for _ in range(B)]
-    blankets = [_iamb_gauss_one_subsample(idx, X, y_cont, test, alpha) for idx in indices]
+    blankets = [_iamb_gauss_one_subsample(idx, X, y_cont, test, alpha, method) for idx in indices]
     return np.sum(blankets, axis=0) / B
 
 
