@@ -49,8 +49,8 @@ from experiments._io import new_run_dir                            # noqa: E402
 OUT_DIR = ROOT / 'results' / 'causal_prior' / 'synthetic' / 'beam_gap'
 LAM = 1.0                                  # L2 (matches exact_radii C_REG=1)
 CSV_FIELDS = [
-    'seed', 'p', 'n', 'k_star', 'p_edge', 'K', 'q_name', 'mu_rel', 'mu',
-    'k_exact', 'k_beam', 'beam_match', 'jaccard', 'obj_gap',
+    'seed', 'p', 'n', 'k_star', 'p_edge', 'K', 'parent_size', 'q_name', 'mu_rel', 'mu',
+    'k_exact', 'k_beam', 'beam_match', 'jaccard', 'map_in_pool', 'pool_size', 'obj_gap',
     'exact_is_Sstar', 'beam_recovers_Sstar', 'S_exact', 'S_beam',
 ]
 
@@ -69,6 +69,10 @@ def parse_args():
     p.add_argument('--b-disc', type=int, default=50, help='GES stability subsamples')
     p.add_argument('--mu-rel', type=str, default='0.5,2.0',
                    help='comma-separated mu_rel values for the prior conditions')
+    p.add_argument('--parent-sizes', type=str, default='10',
+                   help='comma-separated FasterRisk beam widths (parent_size) to sweep; '
+                        'wider beam should close the gap to the exact MAP if it is a '
+                        'search artifact (e.g. "10,25,50,100")')
     p.add_argument('--smoke', action='store_true',
                    help='shrink the enumeration for a quick end-to-end check')
     args = p.parse_args()
@@ -76,6 +80,7 @@ def parse_args():
         args.p, args.n, args.k, args.k_star = 16, 100, 4, 3
         args.n_seeds, args.b_disc = 1, 10
     args.mu_rel = tuple(float(x) for x in args.mu_rel.split(','))
+    args.parent_sizes = tuple(int(x) for x in args.parent_sizes.split(','))
     return args
 
 
@@ -125,14 +130,17 @@ def _process_chunk(block, X, y, conditions):
     return best
 
 
-def _fit_fr_support(X, y_signed, k, mu, q):
+def _fit_fr(X, y_signed, k, mu, q, parent_size):
+    """fit fasterrisk and return (top-1 support, list of all pool-member supports).
+    parent_size is the beam width; the pool is collectsparsediversepool's output."""
     with warnings.catch_warnings():
         warnings.simplefilter('ignore')
         from fasterrisk.wrapper import FasterRisk
-        fr = FasterRisk(k=k, mu=float(mu), freq=None if q is None else q.astype(float))
+        fr = FasterRisk(k=k, mu=float(mu), parent_size=parent_size,
+                        freq=None if q is None else q.astype(float))
         fr.fit(X, y_signed)
-    b = fr.betas_[0]
-    return frozenset(int(j) for j in np.where(np.abs(b) > 0)[0])
+    pool = [frozenset(int(j) for j in np.where(np.abs(b) > 0)[0]) for b in fr.betas_]
+    return pool[0], pool
 
 
 def jaccard(a, b):
@@ -180,26 +188,30 @@ def run_seed(seed, args):
     for name, q, mu in conditions:
         S_exact = frozenset(best[name][1])
         qv, _ = qmap[name]
-        S_beam = _fit_fr_support(X, y_signed, args.k, mu, qv)
 
         def F_of(S):
             ell = fit_loss(X[:, sorted(S)], y01) if S else fit_loss(X[:, :0], y01)
             Q = float(q[list(S)].sum()) if S else 0.0
             return ell - mu * Q
-        gap = F_of(S_beam) - F_of(S_exact)
         mr = mu / mu_scale if mu_scale > 0 else 0.0
-        rows.append({
-            'seed': seed, 'p': args.p, 'n': args.n, 'k_star': args.k_star,
-            'p_edge': args.p_edge, 'K': args.k,
-            'q_name': name, 'mu_rel': round(mr, 4), 'mu': mu,
-            'k_exact': len(S_exact), 'k_beam': len(S_beam),
-            'beam_match': int(S_beam == S_exact), 'jaccard': jaccard(S_beam, S_exact),
-            'obj_gap': gap, 'exact_is_Sstar': int(S_exact == S_star),
-            'beam_recovers_Sstar': int(S_star <= S_beam),
-            'S_exact': json.dumps(sorted(S_exact)), 'S_beam': json.dumps(sorted(S_beam)),
-        })
+        for ps in args.parent_sizes:
+            S_beam, pool = _fit_fr(X, y_signed, args.k, mu, qv, ps)
+            map_in_pool = int(S_exact in pool)            # move 2: is the exact MAP in the pool at all?
+            rows.append({
+                'seed': seed, 'p': args.p, 'n': args.n, 'k_star': args.k_star,
+                'p_edge': args.p_edge, 'K': args.k, 'parent_size': ps,
+                'q_name': name, 'mu_rel': round(mr, 4), 'mu': mu,
+                'k_exact': len(S_exact), 'k_beam': len(S_beam),
+                'beam_match': int(S_beam == S_exact), 'jaccard': jaccard(S_beam, S_exact),
+                'map_in_pool': map_in_pool, 'pool_size': len(set(pool)),
+                'obj_gap': F_of(S_beam) - F_of(S_exact), 'exact_is_Sstar': int(S_exact == S_star),
+                'beam_recovers_Sstar': int(S_star <= S_beam),
+                'S_exact': json.dumps(sorted(S_exact)), 'S_beam': json.dumps(sorted(S_beam)),
+            })
     print(f'  seed {seed}: enum {enum_s:.0f}s  '
-          + '  '.join(f"{r['q_name']}:{'=' if r['beam_match'] else 'x'}" for r in rows),
+          + '  '.join(f"{r['q_name']}@ps{r['parent_size']}:"
+                      f"{'=' if r['beam_match'] else ('p' if r['map_in_pool'] else 'x')}"
+                      for r in rows),
           flush=True)
     return rows
 
@@ -220,13 +232,14 @@ def main():
     output_dir = new_run_dir(OUT_DIR / suffix, vars(args))
     df.to_csv(output_dir / 'beam_gap.csv', index=False)
 
-    summary = (df.groupby('q_name', sort=False)
+    summary = (df.groupby(['q_name', 'parent_size'], sort=False)
                .agg(match_pct=('beam_match', lambda s: 100 * s.mean()),
+                    in_pool_pct=('map_in_pool', lambda s: 100 * s.mean()),
                     mean_jacc=('jaccard', 'mean'),
                     mean_gap=('obj_gap', 'mean'),
                     exact_is_Sstar_pct=('exact_is_Sstar', lambda s: 100 * s.mean())))
     summary.to_csv(output_dir / 'summary.csv')
-    print('\nbeam vs exact MAP support, by condition:', flush=True)
+    print('\nbeam (top-1) vs exact MAP support, plus is-MAP-in-pool, by condition:', flush=True)
     print(summary.to_string(), flush=True)
     print(f'Done. Results in {output_dir}/', flush=True)
 
