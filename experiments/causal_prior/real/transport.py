@@ -48,46 +48,80 @@ from src.causal_prior.scorecard import import_fasterrisk  # noqa: E402
 from src.causal_prior.baselines import cfs_fisherz  # noqa: E402
 from experiments._io import new_run_dir  # noqa: E402
 
-# continuous/ordinal kept numeric (thresholded later); the rest one-hot to {0,1}
-# indicators. POBP (birthplace) is the spurious state-correlate we want present.
-CONT = ['AGEP', 'WKHP', 'SCHL']
-CAT = ['SEX', 'RAC1P']
-HIGHCARD = ['POBP']
 DATA_ROOT = REPO_ROOT / 'data' / 'real' / 'folktables'
 
 
-def load_raw(state, year):
-    from folktables import ACSDataSource, ACSIncome
+def _task_cfg(task):
+    """feature layout + target per folktables task. income: POBP is the spurious
+    state-correlate. pubcov: PINCP (income) is the policy-dependent predictor whose
+    relationship to coverage flips between Medicaid-expansion and non-expansion states,
+    so it should fail an invariance test while genuine eligibility features (DIS, AGEP,
+    CIT) stay stable. ST is dropped (constant within a state)."""
+    from folktables import ACSIncome, ACSPublicCoverage
+    if task == 'income':
+        return dict(prob=ACSIncome, cont=['AGEP', 'WKHP', 'SCHL'], cat=['SEX', 'RAC1P'],
+                    high=['POBP'], target=lambda v: np.where(v > 50000, 1, -1))
+    if task == 'pubcov':
+        return dict(prob=ACSPublicCoverage, cont=['AGEP', 'SCHL', 'PINCP'],
+                    cat=['SEX', 'DIS', 'CIT', 'MAR', 'NATIVITY', 'ESR', 'MIG',
+                         'DEAR', 'DEYE', 'DREM', 'RAC1P'],
+                    high=[], target=lambda v: np.where(v == 1, 1, -1))
+    raise ValueError(f'unknown task {task!r}')
+
+
+def load_raw(state, year, cfg):
+    from folktables import ACSDataSource
     ds = ACSDataSource(survey_year=str(year), horizon='1-Year', survey='person',
                        root_dir=str(DATA_ROOT))
-    raw = ACSIncome._preprocess(ds.get_data(states=[state], download=True))
-    cols = ACSIncome.features + [ACSIncome.target]
-    return raw.dropna(subset=cols)[cols].reset_index(drop=True)
+    prob = cfg['prob']
+    raw = prob._preprocess(ds.get_data(states=[state], download=True))
+    # drop NaN only on the columns we actually use; dropping on unused task features
+    # (e.g. FER, which is NaN for all males) would silently bias the sample.
+    use = cfg['cont'] + cfg['cat'] + cfg['high'] + [prob.target]
+    return raw.dropna(subset=use)[use].reset_index(drop=True)
 
 
-def build_encoder(df_src, topk):
+def build_encoder(df_src, topk, cfg):
     """fix one-hot levels from the SOURCE so all states share identical columns."""
-    enc = {'cat': {c: sorted(df_src[c].dropna().unique().tolist()) for c in CAT}}
-    enc['high'] = {c: df_src[c].value_counts().index[:topk].tolist() for c in HIGHCARD}
+    enc = {'cat': {c: sorted(df_src[c].dropna().unique().tolist()) for c in cfg['cat']}}
+    enc['high'] = {c: df_src[c].value_counts().index[:topk].tolist() for c in cfg['high']}
     return enc
 
 
-def encode(df, enc):
+def encode(df, enc, cfg):
     """raw ACS df -> (X_orig float matrix, names, y in {-1,1}) under a fixed encoder."""
-    from folktables import ACSIncome
     cols, names = [], []
-    for c in CONT:
+    for c in cfg['cont']:
         cols.append(df[c].to_numpy(float)); names.append(c)
-    for c in CAT:
+    for c in cfg['cat']:
         for lv in enc['cat'][c]:
             cols.append((df[c] == lv).to_numpy(float)); names.append(f'{c}={lv}')
-    for c in HIGHCARD:
+    for c in cfg['high']:
         keep = enc['high'][c]
         for lv in keep:
             cols.append((df[c] == lv).to_numpy(float)); names.append(f'{c}={lv}')
         cols.append((~df[c].isin(keep)).to_numpy(float)); names.append(f'{c}=other')
-    y = np.where(df[ACSIncome.target].to_numpy(float) > 50000, 1, -1).astype(int)
+    y = cfg['target'](df[cfg['prob'].target].to_numpy(float)).astype(int)
     return np.column_stack(cols), names, y
+
+
+def icp_invariance_q(env_X_y, c_reg=1.0):
+    """ICP-flavoured invariance score on the original features: per-feature
+    logistic-coefficient sign stability across environments. q_j in [0,1]: 1 = same sign
+    in every environment (relationship invariant, a genuine cause), ~0 = the sign flips
+    across environments (an association that is policy- or state-dependent and does not
+    transport). X is standardised per environment so signs are comparable. This is the
+    invariance-based source the cross-environment selection q cannot provide: it sees a
+    relationship flip, not just a selection change."""
+    from sklearn.linear_model import LogisticRegression
+    signs = []
+    for X, y in env_X_y:
+        Xs = (X - X.mean(0)) / (X.std(0) + 1e-9)
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore')
+            clf = LogisticRegression(C=c_reg, max_iter=2000).fit(Xs, (y > 0).astype(int))
+        signs.append(np.sign(clf.coef_[0]))
+    return np.abs(np.vstack(signs).mean(0))
 
 
 def _auc(fr, cols, X, y01):
@@ -98,16 +132,32 @@ def _auc(fr, cols, X, y01):
 
 def main():
     args = parse_args()
+    cfg = _task_cfg(args.task)
     targets = args.targets.split(',')
-    print(f'loading source={args.source}, targets={targets} (year {args.year})...', flush=True)
-    src_raw = load_raw(args.source, args.year)
-    enc = build_encoder(src_raw, args.topk)
-    Xsrc, names, ysrc = encode(src_raw, enc)
+    print(f'task={args.task}, source={args.source}, targets={targets} (year {args.year})...', flush=True)
+    src_raw = load_raw(args.source, args.year, cfg)
+    enc = build_encoder(src_raw, args.topk, cfg)
+    Xsrc, names, ysrc = encode(src_raw, enc, cfg)
     names = np.asarray(names)
     tgt = {}
     for t in targets:
-        Xt, _, yt = encode(load_raw(t, args.year), enc)
+        Xt, _, yt = encode(load_raw(t, args.year, cfg), enc, cfg)
         tgt[t] = (Xt, yt)
+
+    idx_Z = None
+    if args.inject_spurious:
+        # source: Z agrees with the label with prob rho (strong predictor).
+        # target: Z is independent noise (its label-correlation is destroyed by the shift).
+        agree = np.random.default_rng((args.seed, 777)).random(len(ysrc)) < args.spurious_rho
+        z = np.where(agree, ysrc > 0, ysrc <= 0).astype(float)
+        Xsrc = np.column_stack([Xsrc, z]); names = np.append(names, 'Z_spurious')
+        idx_Z = len(names) - 1
+        for t, (Xt, yt) in list(tgt.items()):
+            zt = (np.random.default_rng((args.seed, 778, hash(t) % 97)).random(len(yt)) < 0.5).astype(float)
+            tgt[t] = (np.column_stack([Xt, zt]), yt)
+        print(f'injected Z_spurious: source corr(z,y)={np.corrcoef(z, ysrc > 0)[0, 1]:+.2f}, '
+              f'target corr ~ 0', flush=True)
+
     print(f'features={len(names)} (>=2 cont + indicators); source n={len(ysrc)}; ' +
           '; '.join(f'{t} n={len(v[1])}' for t, v in tgt.items()), flush=True)
 
@@ -134,20 +184,32 @@ def main():
     # invariantly-selected causes survive. this is the fix for the single-state q that
     # inherits environment-specific correlates.
     cross = [c for c in args.cross_states.split(',') if c]
-    q_ce = None
+    q_ce = q_icp = None
     if cross:
         print(f'cross-environment q over {[args.source] + cross} (agg={args.ce_agg})...', flush=True)
         per_state = [q]
+        envs = [(Xsrc[disc], ysrc[disc])]              # source env, for the ICP score
         for c in cross:
-            Xc, _, yc = encode(load_raw(c, args.year), enc)
+            Xc, _, yc = encode(load_raw(c, args.year, cfg), enc, cfg)
             dc = np.random.default_rng((args.seed, abs(hash(c)) % 9973)).permutation(len(yc))[:args.n_disc]
             with warnings.catch_warnings():
                 warnings.simplefilter('ignore')
                 per_state.append(discover_q('ges_cg', Xc[dc], yc[dc].astype(float), args.b, args.seed))
+            envs.append((Xc[dc], yc[dc]))
         Q = np.vstack(per_state)
         q_ce = Q.min(0) if args.ce_agg == 'min' else Q.mean(0)
-        top = names[np.argsort(-q_ce)[:6]]
-        print(f'  top cross-env features: {list(top)}', flush=True)
+        q_icp = icp_invariance_q(envs)                 # invariance (sign-stability) q
+        print(f'  top cross-env (selection) features: {list(names[np.argsort(-q_ce)[:6]])}', flush=True)
+        print(f'  top invariance (ICP) features: {list(names[np.argsort(-q_icp)[:6]])}', flush=True)
+        print(f'  least invariant (sign flips): {list(names[np.argsort(q_icp)[:4]])}', flush=True)
+
+    if idx_Z is not None:  # correct external causal evidence: the injected feature is not a cause
+        print(f'  discovered q[Z_spurious]={q[idx_Z]:.2f} before override -> 0', flush=True)
+        q[idx_Z] = 0.0
+        if q_ce is not None:
+            q_ce[idx_Z] = 0.0
+        if q_icp is not None:
+            q_icp[idx_Z] = 0.0
 
     mu_grid = [0.0] + args.mu_rel
     rows = []
@@ -178,12 +240,14 @@ def main():
                 for t, (Xtb, ytb) in tgt_bin.items():
                     rec[f'auc_{t}'] = _auc(fr, all_cols, Xtb, ytb)
                 rows.append(rec)
-            if q_ce is not None:  # cross-environment invariance prior, same mu sweep
-                q_ce_bin = q_ce[parent]
+            for arm_name, q_extra in (('causal_ce', q_ce), ('causal_icp', q_icp)):
+                if q_extra is None:
+                    continue
+                q_eb = q_extra[parent]
                 for mr in args.mu_rel:
-                    fr = FR(k=args.k, mu=mr * mu_scale, freq=q_ce_bin.astype(float))
+                    fr = FR(k=args.k, mu=mr * mu_scale, freq=q_eb.astype(float))
                     fr.fit(Xtr, ysrc[tr])
-                    rec = {'seed': s, 'arm': 'causal_ce', 'mu_rel': mr,
+                    rec = {'seed': s, 'arm': arm_name, 'mu_rel': mr,
                            'auc_source': _auc(fr, all_cols, Xte_src, yte01)}
                     for t, (Xtb, ytb) in tgt_bin.items():
                         rec[f'auc_{t}'] = _auc(fr, all_cols, Xtb, ytb)
@@ -239,6 +303,9 @@ def plot_transport(long, targets, out_png):
 
 def parse_args():
     p = argparse.ArgumentParser()
+    p.add_argument('--task', choices=['income', 'pubcov'], default='income',
+                   help='folktables task; pubcov has income (PINCP) as the policy-dependent '
+                        'predictor whose relationship flips between expansion/non-expansion states')
     p.add_argument('--source', default='CA')
     p.add_argument('--targets', default='PR,SD')
     p.add_argument('--year', type=int, default=2018)
@@ -259,6 +326,13 @@ def parse_args():
                         'across them, down-weighting state-specific correlates. empty = off.')
     p.add_argument('--ce-agg', choices=['mean', 'min'], default='mean',
                    help='aggregate the per-state q into the invariance prior (min = strict)')
+    p.add_argument('--inject-spurious', action='store_true',
+                   help='semi-synthetic: inject a feature strongly predictive in the source '
+                        'but noise in the target (correlation shifts across environments), and '
+                        'give the prior the correct knowledge that it is non-causal (q=0). '
+                        'isolates the transport mechanism on a real-data substrate.')
+    p.add_argument('--spurious-rho', type=float, default=0.85,
+                   help='source agreement of the injected feature with the label')
     p.add_argument('--smoke', action='store_true')
     args = p.parse_args()
     if args.smoke:
