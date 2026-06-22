@@ -54,10 +54,12 @@ def _subsample_indices(n: int, fraction: float,
 
 
 def _pc_one_subsample_R(idx: np.ndarray, X: np.ndarray, y_continuous: np.ndarray,
-                         p: int, alpha: float, m_max: int) -> np.ndarray:
+                         p: int, alpha: float, m_max: int,
+                         skel_method: str = 'original') -> np.ndarray:
     """One pcalg::pc call on a subsample. gaussCItest = Fisher Z on partial
     correlations. m.max caps the size of conditioning sets, recovering power
-    on dense DAGs where larger separators lose Fisher Z power."""
+    on dense DAGs where larger separators lose Fisher Z power. skel_method
+    'stable' is the order-independent skeleton (Colombo & Maathuis 2014)."""
     _init_R_pcalg()
     import rpy2.robjects as ro
     from rpy2.robjects.conversion import localconverter
@@ -68,7 +70,7 @@ def _pc_one_subsample_R(idx: np.ndarray, X: np.ndarray, y_continuous: np.ndarray
     ro.r('n_sub <- nrow(X_sub); p_sub <- ncol(X_sub)')
     ro.r('suffStat <- list(C = cor(X_sub), n = n_sub)')
     ro.r(f'res <- pc(suffStat, indepTest=gaussCItest, alpha={alpha}, '
-         f'p=p_sub, m.max={m_max}, verbose=FALSE)')
+         f'p=p_sub, m.max={m_max}, skel.method="{skel_method}", verbose=FALSE)')
     with localconverter(_R_CONVERTER):
         adj = np.array(ro.r('as(res@graph, "matrix")'))
     y_idx = p  # target is appended as the last column
@@ -78,27 +80,60 @@ def _pc_one_subsample_R(idx: np.ndarray, X: np.ndarray, y_continuous: np.ndarray
 def pc_stability_q(X: np.ndarray, y_continuous: np.ndarray,
                    B: int = 100, subsample_fraction: float = 0.5,
                    alpha: float = 0.1, m_max: int = 5,
-                   n_jobs: int = 1,
+                   stable: bool = False, n_jobs: int = 1,
                    rng: np.random.Generator | None = None) -> np.ndarray:
     """Subsample-stability PC via pcalg (R backend); q_j = freq over B runs
-    that x_j is adjacent to y.
+    that x_j is adjacent to y. stable=True uses the order-independent skeleton
+    (pc-stable, Colombo & Maathuis 2014), the standard fix to vanilla PC's
+    order-dependence and instability.
 
     alpha=0.1 (looser than the textbook 0.05) and m.max=5 (cap conditioning
     set size) are tuned to recover PC's power on dense linear-Gaussian DAGs.
-    Both are standard pcalg defaults in recent dense-DAG benchmarks; the
-    underlying CI test is unchanged (Fisher Z on partial correlations).
-
-    Each pc() call is ~0.1s at p=31, n=300, so we run B subsamples
-    sequentially in a single R session. n_jobs is ignored.
+    Each pc() call is ~0.1s at p=31, n=300, run sequentially; n_jobs ignored.
     """
     if rng is None:
         rng = np.random.default_rng()
     n, p = X.shape
+    skel = 'stable' if stable else 'original'
     indices = [_subsample_indices(n, subsample_fraction, rng) for _ in range(B)]
     _init_R_pcalg()
-    adjacencies = [_pc_one_subsample_R(idx, X, y_continuous, p, alpha, m_max)
+    adjacencies = [_pc_one_subsample_R(idx, X, y_continuous, p, alpha, m_max, skel)
                    for idx in indices]
     return np.sum(adjacencies, axis=0) / B
+
+
+def dagma_stability_q(X: np.ndarray, y_continuous: np.ndarray,
+                      B: int = 100, subsample_fraction: float = 0.5,
+                      lambda1: float = 0.02, w_threshold: float = 0.3,
+                      rng: np.random.Generator | None = None) -> np.ndarray:
+    """Subsample-stability DAGMA (continuous-optimization discovery; Bello et al.
+    2022, the modern NOTEARS); q_j = freq over B runs that x_j is adjacent to y.
+
+    features are standardized per subsample to defuse the varsortability artifact
+    (Reisach et al. 2021) that lets continuous-opt methods read off the variance
+    order on simulated DAGs. y is appended as the last node."""
+    import contextlib
+    import io
+    from dagma.linear import DagmaLinear
+    from sklearn.preprocessing import StandardScaler
+    if rng is None:
+        rng = np.random.default_rng()
+    n, p = X.shape
+    counts = np.zeros(p)
+    for _ in range(B):
+        idx = _subsample_indices(n, subsample_fraction, rng)
+        data = StandardScaler().fit_transform(
+            np.column_stack([X[idx], y_continuous[idx]]))
+        try:
+            sink = io.StringIO()
+            with warnings.catch_warnings(), contextlib.redirect_stderr(sink):
+                warnings.simplefilter('ignore')
+                W = DagmaLinear(loss_type='l2').fit(
+                    data, lambda1=lambda1, w_threshold=w_threshold)
+        except Exception:
+            continue
+        counts += ((np.abs(W[p, :p]) > 0) | (np.abs(W[:p, p]) > 0)).astype(int)
+    return counts / B
 
 
 def _ges_one_subsample_R(idx: np.ndarray, X: np.ndarray, y_continuous: np.ndarray,
