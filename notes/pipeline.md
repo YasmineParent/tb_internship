@@ -43,11 +43,35 @@ subject to the same constraints. Parameters: $\mu\ge0$ (prior strength), $k$ (sp
 
 ### 2.3 MAP derivation
 
-Place a Bernoulli inclusion prior on the support indicators $z_j=\mathbb{1}[w_j\neq0]$, $z_j\sim\mathrm{Bernoulli}(\pi_j)$ independently, with a uniform conditional prior on $w_j\mid z_j=1$ over the integer box. This is the discrete spike-and-slab construction (Mitchell and Beauchamp 1988, George and McCulloch 1993) adapted to integer coefficients; the log-prior reduces to $\sum_j z_j\,\mathrm{logit}(\pi_j)+\text{const}$. Setting $\pi_j=\sigma(\mu q_j)$ gives $\log p(\mathbf{w})=\mu\sum_j q_j\mathbb{1}[w_j\neq0]+\text{const}$, so MAP estimation is exactly the modified objective. The sigmoid link makes the log-prior linear in $q_j$ with slope $\mu$. At $q_j=0$, $\pi_j=1/2$ (uniform inclusion at zero evidence): the prior treats $q$ as evidence on a positive scale, not as a probability centered at $1/2$. Independence across $j$ is the load-bearing assumption: it yields per-feature decomposability and matches the per-feature nature of $q_j$; collinearity-induced redundancy is mitigated only by the hard sparsity cap (Section 7).
+Place a discrete spike-and-slab prior  on each coefficient, with support indicators $z_j = \mathbb{1}[w_j \neq 0] \sim \text{Bernoulli}(\pi_j)$ independent across $j$ and a uniform slab on $w_j \mid z_j = 1$ over $\{-C, \ldots, -1, 1, \ldots, C\}$:
+
+$$
+p(w_j) = (1 - \pi_j)^{1 - z_j} \left(\frac{\pi_j}{2C}\right)^{z_j}, \qquad p(\mathbf{w}) = \prod_{j=1}^p p(w_j).
+$$
+
+Taking logs and collecting the $z_j$-dependent terms,
+
+$$
+\log p(\mathbf{w}) = \sum_{j=1}^p z_j \big(\operatorname{logit}(\pi_j) - \log(2C)\big) + \text{const}.
+$$
+
+Set $\pi_j = \sigma(\mu q_j + \log(2C))$, so the $\log(2C)$ offset cancels the slab cardinality and $\operatorname{logit}(\pi_j) - \log(2C) = \mu q_j$:
+
+$$
+\log p(\mathbf{w}) = \mu \sum_{j=1}^p q_j \, \mathbb{1}[w_j \neq 0] + \text{const}.
+$$
+
+MAP estimation then minimizes
+
+$$
+L(\mathbf{w}, w_0, \mathcal{D}) - \log p(\mathbf{w}) = L(\mathbf{w}, w_0, \mathcal{D}) - \mu \sum_{j=1}^p q_j \, \mathbb{1}[w_j \neq 0] + \text{const},
+$$
+
+which is the modified objective. The sigmoid is forced: $\operatorname{logit}$ is the Bernoulli natural parameter, so making the bonus linear in $q_j$ requires its inverse as the link. At $q_j = 0$ the bonus vanishes, so a feature with no causal evidence gets no steer and the objective reduces to vanilla. With $q_j \in [0,1]$ and $\mu \geq 0$ the prior only promotes inclusion; it cannot demote a feature. Independence across $j$ gives the per-feature decomposability used in §2.4 but ignores collinearity, which is handled only by the hard sparsity cap (§8).
 
 ### 2.4 Limits
 
-$\mu=0$ recovers vanilla FasterRisk (uniform inclusion prior). $\mu\to\infty$ drives $\pi_j\to1$ for any $q_j>0$, so the $k$-constrained optimum collapses to the support maximizing $\sum_{j\in S}q_j$ (hard pre-selection by $q$). The single parameter $\mu$ interpolates between the two familiar endpoints with no threshold to set.
+$\mu = 0$: the bonus vanishes ($\mu \sum_j q_j \mathbb{1}[w_j \neq 0] = 0$), the modified objective reduces to $L$, and vanilla FasterRisk is recovered.
 
 ### 2.5 Structural properties
 
