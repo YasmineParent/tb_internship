@@ -1,0 +1,11 @@
+paradigm,q_source,F1,recall,corr_incl,auc,stab,n
+control,oracle,0.712,0.93,0.073,0.997,0.573,20
+control,uniform,0.584,0.76,0.123,0.994,0.492,20
+control,adversarial,0.431,0.57,0.187,0.993,0.48,20
+score,ges,0.633,0.82,0.066,0.997,0.69,20
+stability,bootstrap_l1,0.528,0.72,0.12,0.996,0.724,20
+constraint-local,iamb,0.73,0.93,0.074,0.997,0.673,20
+constraint-global,pc_stable,0.607,0.79,0.133,0.996,0.565,20
+continuous-opt,dagma,0.601,0.76,0.12,0.996,0.638,20
+constraint-local,hiton_mb,0.532,0.66,0.098,0.995,0.638,20
+constraint-local,fbed,0.542,0.7,0.12,0.996,0.606,20

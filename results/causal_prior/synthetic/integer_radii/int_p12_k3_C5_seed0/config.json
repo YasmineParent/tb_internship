@@ -1,0 +1,17 @@
+{
+  "p": 12,
+  "n": 200,
+  "k_star": 3,
+  "p_edge": 0.5,
+  "C": 5,
+  "C0": 8,
+  "seed": 0,
+  "b_disc": 50,
+  "mu_rel": [
+    0.5,
+    2.0
+  ],
+  "parent_size": 10,
+  "smoke": false,
+  "k": 3
+}
