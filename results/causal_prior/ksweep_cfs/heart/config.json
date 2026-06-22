@@ -1,0 +1,14 @@
+{
+  "dataset": "heart",
+  "qsrc": "ges_cg",
+  "reps": 3,
+  "b": 10,
+  "alpha": 0.05,
+  "n_thresholds": 4,
+  "n_mu": 8,
+  "n_cv": 5,
+  "test_frac": 0.3,
+  "sentinel_nan": false,
+  "seed": 0,
+  "smoke": true
+}

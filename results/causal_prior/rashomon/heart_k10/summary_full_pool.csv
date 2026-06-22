@@ -1,0 +1,3 @@
+arm,n,q_mass_mean,q_mass_top,auc_min,auc_max
+vanilla,27,0.1929,0.254,0.8362,0.8956
+causal,50,0.5527,0.5943,0.8531,0.9256

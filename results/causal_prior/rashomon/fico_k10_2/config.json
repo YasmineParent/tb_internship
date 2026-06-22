@@ -1,0 +1,22 @@
+{
+  "dataset": "fico",
+  "qsrc": "ges_cg",
+  "k": 10,
+  "n_cv": 5,
+  "n_mu": 12,
+  "b": 100,
+  "n_thresholds": 4,
+  "discovery_frac": 0.3,
+  "test_size": 0.3,
+  "auc_band": 0.01,
+  "train_n": 5124,
+  "mu_rel": -1.0,
+  "sentinel_nan": true,
+  "smoke": false,
+  "seed": 0,
+  "mu_hat_rel": 0.0657933224657568,
+  "auc_floor": 0.7649682401295302,
+  "discovery_n": 3138,
+  "test_n": 2197,
+  "leakage_free": true
+}
