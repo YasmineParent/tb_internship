@@ -165,38 +165,14 @@ Both vanilla and causal FasterRisk return a diverse pool of near-optimal scoreca
 
 The admissible cards are accuracy-indistinguishable (within 0.008 AUC) yet differ in how much they rest on causal features; the prior slides the whole band upward (its least-grounded admissible card, 0.35, is about as causal as vanilla's most-grounded one, 0.37) at no accuracy cost. Per-member supports are logged so the disagreement and its resolution can be shown at the feature level.
 
-## 5. Related work
-
-The prior sits at the intersection of five literatures; the novelty is in their intersection. (Citations are to be bibliographically reconfirmed before submission.)
-
-**Interpretable risk scores.** Integer-coefficient scorecards optimized directly, rather than rounded from a continuous model, were formalized by RiskSLIM (Ustun and Rudin 2019) and accelerated by FasterRisk (Liu et al. 2022), which enlarges the searchable hypothesis class through a multiplier and a beam-search-plus-rounding pipeline with a certified loss bound; GroupFasterRisk (Zhu et al. 2025) adds monotonicity constraints and group sparsity. We build on FasterRisk as a substrate and inherit its guarantees; our contribution is a feature-selection prior that composes with this machinery without altering its optimization structure. This literature already offers three ways to inject domain knowledge: manual selection from the diverse pool, monotonicity constraints, and group sparsity. Ours is a fourth, a soft, per-feature, evidence-weighted inclusion prior derived as a MAP, sourced from causal discovery, and optimized inside the solver rather than applied by hand or as a hard constraint.
-
-**Externally-informed and knowledge-guided penalization.** A long line of work modulates regularization with external information: the adaptive lasso (Zou 2006) reweights the penalty by an initial estimate, IPF-LASSO (Boulesteix et al. 2017) assigns penalty factors per data source, and feature-weighted methods set per-feature penalties from meta-features or co-data (xtune, Zeng et al. 2021; fwelnet, Tay et al. 2020). Closer to our setting, knowledge-guided regularization has been used inside interpretable predictive models: EYE (Wang et al. 2018) steers a clinical model toward expert-flagged covariates and validates by overlap with known risk factors, and Causal Regularization (Bahadori et al. 2017) places a per-feature causal weight in the penalty. All of these act on coefficient magnitude in a continuous convex problem. Our prior instead acts on the binary inclusion indicator, is invariant to coefficient magnitude, and is optimized combinatorially inside the integer-scorecard solver, where support and magnitude are distinct objects; and where these methods validate that the selected support is plausible, we make the evidence source the object of study (selectivity, provenance versus mechanism, transport).
-
-**Bayesian variable selection.** Spike-and-slab priors (Mitchell and Beauchamp 1988; George and McCulloch 1993) and their structured variants, including covariate-dependent inclusion probabilities and the spike-and-slab lasso (Ročková and George 2018), encode prior beliefs about which features enter a model, typically via posterior sampling over continuous coefficients. We take the MAP of a Bernoulli inclusion prior, which reduces to a single linear penalty on the support and is solved by the scorecard optimizer, yielding an integer model with a transferable rounding bound rather than a posterior.
-
-**Causal and invariance-based selection.** Markov-blanket and causal feature selection (Aliferis et al. 2010; Yu et al. 2020) identify features by causal relevance, usually by hard thresholding. Invariance-based methods, including invariant causal prediction (Peters et al. 2016), invariant risk minimization (Arjovsky et al. 2019), and anchor regression (Rothenhäusler et al. 2021), target out-of-distribution generalization by modifying the predictor, generally requiring multi-environment training data. We differ on both axes: our prior is soft, propagating selection uncertainty through $\mu$ rather than thresholding (we compare soft against hard directly), and we obtain transport from the selectivity of the selected support, sourced from single-environment causal discovery and evaluated under a held-out environment shift, rather than by training an invariant predictor.
-
-**Positioning.** To our knowledge no prior work operates on the combinatorial integer-scorecard problem with a support-level (rather than magnitude-level) inclusion bonus that is the exact MAP of a Bernoulli inclusion prior and preserves the decomposability and rounding guarantees of a certified sparse-scorecard solver, while making the evidence source the object of study through selectivity and transport. The nearest precedents are EYE and Causal Regularization (knowledge-guided penalties in continuous predictive models) and the weighted-lasso family (co-data penalties); none reach the integer-scorecard, support-level-MAP, source-as-object-of-study intersection.
-
-| Axis | Weighted lasso | Bayesian spike-and-slab | Causal feature selection | ICP / IRM / anchor | This work |
-|---|---|---|---|---|---|
-| Acts on | coefficient magnitude | coefficient + inclusion | inclusion (hard) | predictor / objective | inclusion (soft) |
-| Optimization | continuous convex | posterior sampling | filter / wrapper | continuous | combinatorial integer |
-| Output | continuous model | posterior | feature set | invariant predictor | integer scorecard |
-| External info | any weights | structured prior | causal | environments | causal $q$, as object of study |
-| Needs multi-env data | no | no | no | yes | no |
-| Evaluated on | prediction | prediction / recovery | recovery | OOD risk | selectivity + transport + stability |
-| Stability guarantee | oracle (asymptotic) | none stated | none | none | exact MAP radii, $1/\mu$ exchange |
-
-## 6. Contributions
+## 5. Contributions
 
 1. **A soft causal-prior penalty for sparse integer classification.** A Bernoulli inclusion prior with sigmoid link whose MAP is a single linear-in-$q$ bonus on the support indicator; threshold-free, one parameter, with vanilla FasterRisk and hard pre-selection as the two limits. Implemented, numerically equivalent to vanilla at $\mu=0$.
 2. **Decomposability-preserving integration into FasterRisk.** Linear separability preserves the beam-search and diverse-pool structure and the integer-rounding bound transfers under support preservation. The same form admits a one-line RiskSLIM port (future work).
 3. **Causal discovery as the source of evidence that recovers and transports.** Causally-sourced $q$ recovers the true sparse support (4.1) and, the canonical payoff, keeps the scorecard invariant across an ICP-style environment shift (4.3) where a predictively-sourced $q$ is pulled onto confounders and loses transport. The mechanism is that discovery yields selective supports; the GES-vs-PC gradient shows discovery quality drives the gain.
 4. **An exact support-stability analysis** unifying the fold-to-fold stability gain and the adversarial fragility as one $1/\mu$ exchange, with a closed-form do-no-harm threshold, a probabilistic stability bound with a Nogueira floor, and a selection-consistency result.
 
-## 7. Limitations and future work
+## 6. Limitations and future work
 
 - **$\mu$ tuning is empirical** with no closed-form scaling against $n$; the fixed relative $\mu$ of Section 4.4 is a defensible default, and a sensitivity sweep over a small band is the airtight version.
 - **Faithfulness** is required wherever a causal graph is the prior source; failures show up as biased $q$.
