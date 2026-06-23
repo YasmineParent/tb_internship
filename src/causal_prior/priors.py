@@ -353,10 +353,9 @@ def bnlearn_mb(X: np.ndarray, y: np.ndarray, method: str = 'iamb',
 
 def _bnlearn_mb_one_subsample(idx: np.ndarray, X: np.ndarray, y01: np.ndarray,
                               disc_cols: list[int], test: str,
-                              alpha: float) -> np.ndarray:
-    """one bnlearn iamb markov-blanket learn on a subsample; length-p indicator of
-    the blanket of y. mirrors _bnlearn_one_subsample but uses learn.mb (iamb) with
-    the mixed-data ci test, for the soft iamb prior."""
+                              alpha: float, method: str = 'iamb') -> np.ndarray:
+    """one bnlearn MB learn on a subsample; length-p indicator of the blanket of y.
+    method is any bnlearn learn.mb algorithm (iamb, gs, inter.iamb, fast.iamb, ...)."""
     import rpy2.robjects as ro
     from rpy2.robjects.conversion import localconverter
 
@@ -373,7 +372,7 @@ def _bnlearn_mb_one_subsample(idx: np.ndarray, X: np.ndarray, y01: np.ndarray,
     ''')
     with warnings.catch_warnings():
         warnings.simplefilter('ignore')
-        ro.r(f'mb <- tryCatch(learn.mb(df, "y", method="iamb", test="{test}", '
+        ro.r(f'mb <- tryCatch(learn.mb(df, "y", method="{method}", test="{test}", '
              f'alpha={alpha}), error=function(e) character(0))')
     with localconverter(_R_CONVERTER):
         mb = list(ro.r('mb'))
@@ -387,16 +386,12 @@ def _bnlearn_mb_one_subsample(idx: np.ndarray, X: np.ndarray, y01: np.ndarray,
 def bnlearn_mb_stability_q(X: np.ndarray, y: np.ndarray, test: str = 'mi-cg',
                            alpha: float = 0.05, B: int = 100,
                            subsample_fraction: float = 0.5,
+                           method: str = 'iamb',
                            rng: np.random.Generator | None = None) -> np.ndarray:
-    """subsample-stability q from bnlearn's iamb markov-blanket learner with the
-    mixed-data conditional-gaussian ci test (mi-cg). q_j = freq over B subsamples
-    that feature j lands in the blanket of y.
-
-    this is the soft iamb prior used by the method's iamb_soft arm: the SAME
-    iamb+mi-cg discovery as the cfs_cg hard baseline, used softly, so cfs_cg vs
-    iamb_soft is a clean same-source soft-vs-hard contrast on a valid mixed-data
-    test. replaces the earlier pycausalfs fisher-z source (invalid on mixed data);
-    pycausalfs stays only for the naive hard cfs_iamb/cfs_hiton baselines."""
+    """subsample-stability q from a bnlearn MB learner with the mixed-data
+    conditional-gaussian ci test. q_j = freq over B subsamples that j lands in
+    the blanket of y. method is any bnlearn learn.mb algorithm (default iamb;
+    gs, inter.iamb, fast.iamb also work on mixed data)."""
     if rng is None:
         rng = np.random.default_rng()
     n, p = X.shape
@@ -405,7 +400,7 @@ def bnlearn_mb_stability_q(X: np.ndarray, y: np.ndarray, test: str = 'mi-cg',
                  if set(np.unique(X[:, j]).tolist()) <= {0.0, 1.0}]
     _init_R_bnlearn()
     indices = [_subsample_indices(n, subsample_fraction, rng) for _ in range(B)]
-    blankets = [_bnlearn_mb_one_subsample(idx, X, y01, disc_cols, test, alpha)
+    blankets = [_bnlearn_mb_one_subsample(idx, X, y01, disc_cols, test, alpha, method)
                 for idx in indices]
     return np.sum(blankets, axis=0) / B
 

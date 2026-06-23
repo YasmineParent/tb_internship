@@ -1,0 +1,17 @@
+{
+  "rho": 0.75,
+  "k": 8,
+  "reps": 2,
+  "mu_rel": [
+    1.0,
+    4.0,
+    16.0
+  ],
+  "n_source": 2000,
+  "n_test": 1000,
+  "n_disc": 1000,
+  "b": 15,
+  "n_thresholds": 4,
+  "seed": 0,
+  "smoke": true
+}

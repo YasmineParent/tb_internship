@@ -1,0 +1,5 @@
+arm,mu_rel,auc_source,auc_target,gap
+causal,1.0,0.7907,0.577,0.2137
+causal,4.0,0.7958,0.5904,0.2054
+causal,16.0,0.7802,0.5628,0.2173
+vanilla,0.0,0.7889,0.5766,0.2123
