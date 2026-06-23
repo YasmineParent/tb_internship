@@ -156,17 +156,27 @@ Causal discovery recovers the true support. IAMB, which targets the Markov blank
 
 How the soft prior compares to established causal feature selection (CFS, e.g. IAMB and HITON-MB), which outputs an estimated Markov blanket as a variable list, not a model. To compare on prediction we fit a FasterRisk scorecard on each method's selected features at matched sparsity (`experiments/causal_prior/real/cfs.py`, leakage-free, held-out AUC over repeated resamples). The arms form a $2\times2$ of soft-vs-hard against the conditional-independence test, so the soft-vs-hard effect is never confounded with the test: a soft prior and a hard selector both built on IAMB with the valid mixed-data (conditional-Gaussian) test, plus the off-the-shelf Fisher-Z selector as a naive reference. Every arm re-selects on each resample, otherwise a once-computed blanket is trivially stable and hides the instability we are measuring. Five benchmarks clear roughly five samples per feature (fico, heart, mammographic, ilpd, german); hepatitis (2.6) is the boundary case below.
 
-Test AUC, mean $\pm$ std over resamples:
+Test AUC mean ± std over resamples (`cfs_results.auc_table`):
 
-| dataset | vanilla | ours | CFS valid (mi-cg) | CFS naive (Fisher-Z) |
-|---|---|---|---|---|
-| fico | 0.763 | 0.762 | 0.640 | 0.765 |
-| heart | 0.894 | 0.903 | 0.861 | 0.869 |
-| mammographic | 0.864 | 0.865 | 0.826 | 0.827 |
-| ilpd | 0.696 | 0.705 | 0.705 | 0.581 |
-| german | 0.729 | 0.731 | 0.698 | 0.722 |
+| dataset | vanilla | ours (GES) | ours (IAMB) | ours (IAMB, FZ) | CFS valid (mi-cg) | CFS naive (FZ) | CFS naive (HITON) |
+|---|---|---|---|---|---|---|---|
+| fico | 0.763 ±0.033 | 0.761 ±0.026 | 0.762 ±0.030 | 0.764 ±0.019 | 0.640 ±0.061 | 0.765 ±0.018 | 0.764 ±0.017 |
+| heart | 0.894 ±0.033 | 0.894 ±0.036 | 0.903 ±0.033 | 0.883 ±0.036 | 0.861 ±0.031 | 0.869 ±0.030 | 0.858 ±0.037 |
+| mammographic | 0.864 ±0.014 | 0.863 ±0.014 | 0.865 ±0.015 | 0.862 ±0.014 | 0.826 ±0.020 | 0.827 ±0.018 | 0.819 ±0.018 |
+| ilpd | 0.696 ±0.036 | 0.704 ±0.038 | 0.705 ±0.035 | 0.686 ±0.040 | 0.705 ±0.039 | 0.581 ±0.035 | 0.581 ±0.034 |
+| german | 0.729 ±0.025 | 0.735 ±0.027 | 0.731 ±0.023 | 0.732 ±0.025 | 0.698 ±0.042 | 0.722 ±0.023 | 0.727 ±0.019 |
 
-(spreads are $\pm0.01$ to $\pm0.06$ across resamples; ours is the IAMB soft prior, GES gives the same picture.)
+Nogueira selection stability (`cfs_results.stability_table`):
+
+| dataset | vanilla | ours (GES) | ours (IAMB) | ours (IAMB, FZ) | CFS valid (mi-cg) | CFS naive (FZ) | CFS naive (HITON) |
+|---|---|---|---|---|---|---|---|
+| fico | 0.512 | 0.551 | 0.558 | 0.702 | 0.521 | 0.691 | 0.617 |
+| heart | 0.549 | 0.539 | 0.578 | 0.594 | 0.534 | 0.843 | 0.763 |
+| mammographic | 0.431 | 0.485 | 0.448 | 0.293 | 0.601 | 0.805 | 0.831 |
+| ilpd | 0.412 | 0.602 | 0.516 | 0.229 | 0.823 | 0.427 | 0.399 |
+| german | 0.419 | 0.498 | 0.464 | 0.550 | 0.452 | 0.532 | 0.584 |
+
+(FZ = Fisher-Z. The 2×2 of soft/hard × ci-test keeps the soft-vs-hard contrast clean: compare ours (IAMB) vs CFS valid for the mi-cg test, and ours (IAMB, FZ) vs CFS naive (FZ) for the Fisher-Z test.)
 
 - **Do no harm.** Ours matches or slightly beats vanilla on every benchmark, within the spread. The prior reshapes which features are picked at no accuracy cost; CV pulls the prior strength to zero when it is uninformative.
 - **Beats the valid hard CFS.** Ours is above the mi-cg hard selector on four of five and ties on ilpd, never below it. On fico that hard selector collapses to 0.64, its blanket is too thin to support a scorecard, while the soft prior, which never hard-drops a feature, holds at 0.76.
@@ -244,6 +254,28 @@ The support-stability analysis (Section 3) gives a unified account of the two em
 ## Appendix A. Implementation
 
 Local modifications to FasterRisk's `sparseBeamSearch.py` (SparseBeamLR) and `sparseDiversePool.py` (CollectSparseDiversePool); the new state is the per-feature evidence vector (`self.freq`) and strength (`self.mu`). Pure Python, no asymptotic-complexity change, bit-identical to vanilla at $\mu=0$ or $q=\mathbf{0}$. FasterRisk's small $L_2$ ridge ($\lambda_2=10^{-8}$) is preserved exactly.
+
+## Appendix C. Additional experimental figures
+
+### C.1 Theory validation
+
+> **[Figure C.1 — PLACEHOLDER]** Three panels confirming the theory on our own runs. (a) Exact-MAP 1/mu collapse: $\varepsilon^\star/\eta^\star$ vs $\mu$ on the brute-force cell ($p=12$, $K=3$), confirming the $1/\mu$ exchange rate. (b) Integer-radii: tight prior radius verified on the integer objective — perturbation just below $\varepsilon^\star$ leaves the integer MAP fixed, just above flips it. (c) Beam-gap pool membership: fraction of cells where the exact MAP support is in FasterRisk's diverse pool, vanilla vs prior, $p=30$, $K=5$, 5 seeds. Source: `experiments/causal_prior/synthetic/exact_radii.py`, `integer_radii.py`, `beam_gap.py` → `results/causal_prior/synthetic/exact_radii/`, `integer_radii/`, `beam_gap/`.
+
+### C.2 Rashomon pool cloud (heart)
+
+> **[Figure C.2 — PLACEHOLDER]** Full rashomon pool cloud for heart: test AUC vs support q-mass for every member of the vanilla and causal diverse pools. Vanilla pool is scattered at mean q-mass 0.19; causal pool concentrates at mean q-mass 0.55, with the matched-accuracy band (AUC within 0.01 of best) shifting from 0.19→0.59 in mean q-mass at no accuracy cost. Source: `experiments/causal_prior/real/rashomon.py` → `results/causal_prior/rashomon/heart_k10/pool.csv`. (Note: if Fig 1 body panel (b) covers this, C.2 may be dropped.)
+
+### C.3 MB-recovery by algorithm
+
+> **[Figure C.3 — PLACEHOLDER]** F1 vs q-source on the synthetic linear-Gaussian DAGs (280 cells, threshold $q\ge0.5$), four sources: IAMB (0.99), GES (0.74), PC (0.42), bootstrap-L1 (0.41). Shows why IAMB is the deployed source — near-perfect Markov-blanket recovery vs global discovery and predictive alternatives. Already present as the inline table in §4.1; promote to a bar chart here. Source: `src/causal_prior/loading.py` → `results/causal_prior/synthetic/recovery_cv/`.
+
+### C.4 mu-path ($\hat\mu$ vs $p_\text{edge}$)
+
+> **[Figure C.4 — PLACEHOLDER]** CV-picked $\hat\mu_\text{rel}$ vs confounding density $p_\text{edge}$ for IAMB and GES, anchor cell $p=30$, $n=300$, $k^\star=5$, 20 seeds. Shows that $\hat\mu$ stays robustly nonzero across all densities for the causal sources, while uniform $q$ collapses to 0 — CV is not fooled by an uninformative prior. Source: `experiments/causal_prior/synthetic/recovery_figs.py` → `results/causal_prior/synthetic/recovery_figs/mu_star_vs_p_edge.png`.
+
+### C.5 k-sweep grid
+
+> **[Figure C.5 — PLACEHOLDER]** Test AUC vs model size $k$ for all arms on all five benchmarks, one panel per dataset (FasterRisk Figure 3/4 format). Our method tracks the vanilla ceiling across all $k$; the CFS hard-selection arms sit below, especially at small $k$ where blanket sparsity starves the scorecard. Source: `experiments/causal_prior/real/ksweep_cfs.py` → `results/causal_prior/ksweep_cfs/`.
 
 ## Appendix B. Support-stability theory: full statements and proofs
 
