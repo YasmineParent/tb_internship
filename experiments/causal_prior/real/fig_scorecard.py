@@ -109,13 +109,6 @@ def _load_diabetes130(seed=0, n_sub=20000):
     return X[idx], np.asarray(names), y[idx]
 
 
-# fixed mu_rel per dataset: chosen to drop non-clinical features without AUC cost.
-# diabetes130: mu_rel=5 drops both billing codes (payer_code) and age bracket
-# while keeping metformin (a clinical treatment decision); CV picks ~5.3 but
-# leaves one billing code in, so we fix at 5.
-FIXED_MU_REL = {'diabetes130': 5.0}
-
-
 def fit_cards(dataset='heart', k=None, b=100, n_mu=12, n_cv=5, n_thresholds=4, seed=0):
     """return top-1 card dict (rows, intercept, auc) for vanilla and causal."""
     if dataset == 'diabetes130':
@@ -145,17 +138,17 @@ def fit_cards(dataset='heart', k=None, b=100, n_mu=12, n_cv=5, n_thresholds=4, s
     ytr, yte = y[tr_idx], (y[te_idx] > 0).astype(int)
     mu_scale, mu_grid = make_mu_grid(Xtr, ytr, n_mu)
     FR = import_fasterrisk()
-    fixed_rel = FIXED_MU_REL.get(dataset)
+    # use auc CV on real data: log_loss and AUC can diverge on imbalanced
+    # clinical outcomes (the "AUC invariant to mu" result holds on synthetic
+    # balanced data, not on real datasets like diabetes130 with 11% positive).
+    cv_criterion = 'log_loss' if dataset == 'synthetic' else 'auc'
     with warnings.catch_warnings():
         warnings.simplefilter('ignore')
         van = FR(k=k, mu=0.0, freq=None)
         van.fit(Xtr, ytr)
-        if fixed_rel is not None:
-            mu_star = fixed_rel * mu_scale
-        else:
-            mu_star = cv_pick_mu(Xtr, ytr, K=k, mu_grid=mu_grid, q=q_bin,
-                                 n_splits=n_cv, criterion='log_loss',
-                                 rng=np.random.default_rng(seed)).mu_star
+        mu_star = cv_pick_mu(Xtr, ytr, K=k, mu_grid=mu_grid, q=q_bin,
+                             n_splits=n_cv, criterion=cv_criterion,
+                             rng=np.random.default_rng(seed)).mu_star
         cau = FR(k=k, mu=float(mu_star), freq=q_bin.astype(float))
         cau.fit(Xtr, ytr)
 

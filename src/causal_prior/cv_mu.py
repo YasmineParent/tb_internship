@@ -86,15 +86,16 @@ def cv_pick_mu(X: np.ndarray, y: np.ndarray, K: int,
 
     log_loss is the standard practitioner criterion (predictive performance
     on held-out data). stability rewards mu values where the prior's choice
-    of support is robust to data perturbation, which can favor causally
-    consistent over spurious-but-predictive features.
+    of support is robust to data perturbation. auc directly maximises the
+    ranking metric; prefer this on imbalanced real datasets where AUC and
+    log_loss can diverge (AUC is mu-flat on synthetic balanced data but not
+    on highly imbalanced clinical outcomes).
 
     All three diagnostics (log_loss, AUC, stability per mu) are always
-    computed and recorded; only the selection criterion differs. AUC is
-    typically mu-flat for FR's integer betas and is reported for reference.
+    computed and recorded; only the selection criterion differs.
     """
-    if criterion not in ('log_loss', 'stability'):
-        raise ValueError(f"criterion must be 'log_loss' or 'stability', got {criterion!r}")
+    if criterion not in ('log_loss', 'stability', 'auc'):
+        raise ValueError(f"criterion must be 'log_loss', 'auc', or 'stability', got {criterion!r}")
     FasterRisk = import_fasterrisk()
     if rng is None:
         rng = np.random.default_rng()
@@ -133,6 +134,8 @@ def cv_pick_mu(X: np.ndarray, y: np.ndarray, K: int,
 
     if criterion == 'log_loss':
         mu_star_idx = int(np.nanargmin(mean_losses))
+    elif criterion == 'auc':
+        mu_star_idx = int(np.nanargmax(mean_aucs))
     else:
         mu_star_idx = int(np.nanargmax(stabilities))
     mu_star = float(mu_grid[mu_star_idx])
