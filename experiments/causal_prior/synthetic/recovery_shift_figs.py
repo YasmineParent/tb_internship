@@ -19,14 +19,18 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_CSV = ROOT / ('results/causal_prior/synthetic/recovery_shift/'
-                      'shift_sweep_p30_n300_k5_K10_seeds0-11.csv')
+DEFAULT_CSV = ROOT / 'results/causal_prior/synthetic/recovery_shift/headline/shift.csv'
 
 BINS = [-0.01, 0.001, 0.1, 0.2, 0.3, 1.01]
 BINLAB = ['0', '(0,.1]', '(.1,.2]', '(.2,.3]', '>.3']
 OP_MU = {'vanilla': 0.0}   # vanilla operates at mu=0; all others at the strong prior
 TOP_MU = 2.0
-SRC_ORDER = ['oracle', 'ges', 'pc', 'vanilla', 'bootstrap_l1', 'adversarial']
+SRC_ORDER = ['oracle', 'ges', 'iamb', 'gs', 'pc', 'vanilla', 'bootstrap_l1', 'adversarial']
+
+
+def load(csv=DEFAULT_CSV):
+    """read a recovery_shift output csv (defaults to the headline run)."""
+    return pd.read_csv(csv)
 
 
 def parse_args():

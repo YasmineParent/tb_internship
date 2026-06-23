@@ -28,8 +28,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
-sys.path.insert(0, str(REPO_ROOT))
+ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(ROOT))
 
 from experiments._io import new_run_dir  # noqa: E402
 from src.causal_prior.priors import edge_stability_matrix  # noqa: E402
@@ -92,7 +92,7 @@ def main():
 
     suffix = f'{args.dataset}_{args.method}' + ('_sent' if args.sentinel_nan else '')
     out_dir = new_run_dir(
-        REPO_ROOT / 'results' / 'causal_prior' / 'cpdag' / suffix, vars(args))
+        ROOT / 'results' / 'causal_prior' / 'cpdag' / suffix, vars(args))
     pd.DataFrame(freq, index=node_names, columns=node_names).to_csv(
         out_dir / 'edge_stability.csv')
     pd.DataFrame(edges, columns=['from', 'to', 'stability', 'directed']).to_csv(

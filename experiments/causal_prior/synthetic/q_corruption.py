@@ -93,7 +93,15 @@ def main():
     if args.smoke:
         args.n_seeds, args.n_levels, args.n_mu, args.n_splits, args.n_jobs = 2, 5, 5, 3, 1
 
-    cells = sorted(args.cache_dir.glob(args.cell_glob))[:args.n_seeds]
+    import re
+    def _seed(p):
+        m = re.match(r'seed(\d+)_', p.name)
+        return int(m.group(1)) if m else 1 << 30
+    # numeric seed filter (seeds 0..n_seeds-1), matching q_robustness; a plain
+    # sorted()[:n] truncates lexicographically (seed0, seed1, seed10, ...) and
+    # picks a different seed pool than the robustness panel.
+    cells = sorted((c for c in args.cache_dir.glob(args.cell_glob)
+                    if _seed(c) < args.n_seeds), key=_seed)
     if not cells:
         ap.error(f'no cells matching {args.cell_glob!r}')
     levels = np.linspace(0.0, 1.0, args.n_levels)

@@ -27,10 +27,10 @@ import pandas as pd
 from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import train_test_split
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
-sys.path.insert(0, str(REPO_ROOT))
+ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(ROOT))
 
-from src.causal_prior.cv_mu import cv_pick_mu  # noqa: E402
+from src.causal_prior.cv_mu import cv_pick_mu, make_mu_grid  # noqa: E402
 from src.causal_prior.binarize import fit_binarizer, apply_binarizer  # noqa: E402
 from src.causal_prior.priors import discover_q  # noqa: E402
 from src.causal_prior.scorecard import import_fasterrisk  # noqa: E402
@@ -106,14 +106,13 @@ def main():
     ytr, yte = y[tr_idx], (y[te_idx] > 0).astype(int)
 
     FR = import_fasterrisk()
-    mu_scale = float(np.median(0.5 * np.abs(Xtr.T @ ytr)))
+    mu_scale, mu_grid = make_mu_grid(Xtr, ytr, args.n_mu)
     with warnings.catch_warnings():
         warnings.simplefilter('ignore')
         van = FR(k=args.k, mu=0.0, freq=None); van.fit(Xtr, ytr)
         if args.mu_rel >= 0:
             mu_star = args.mu_rel * mu_scale
         else:
-            mu_grid = np.concatenate([[0.0], np.logspace(-2, 1, args.n_mu)]) * mu_scale
             mu_star = cv_pick_mu(Xtr, ytr, K=args.k, mu_grid=mu_grid, q=q_bin,
                                  n_splits=args.n_cv, criterion='log_loss',
                                  rng=np.random.default_rng(args.seed)).mu_star
@@ -138,7 +137,7 @@ def main():
     config = {**vars(args), 'mu_hat_rel': mu_hat_rel, 'auc_floor': float(auc_floor),
               'discovery_n': int(len(disc_idx)), 'train_n': int(len(tr_idx)),
               'test_n': int(len(te_idx)), 'leakage_free': True}
-    out = new_run_dir(REPO_ROOT / 'results' / 'causal_prior' / 'rashomon' / f'{args.dataset}_k{args.k}',
+    out = new_run_dir(ROOT / 'results' / 'causal_prior' / 'rashomon' / f'{args.dataset}_k{args.k}',
                       config)
     pool.to_csv(out / 'pool.csv', index=False)
     summ_full.to_csv(out / 'summary_full_pool.csv')

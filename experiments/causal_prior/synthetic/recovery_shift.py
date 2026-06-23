@@ -49,11 +49,10 @@ from src.data.synthetic_envs import make_environments              # noqa: E402
 from src.causal_prior.q_sources import (                           # noqa: E402
     oracle_q, uniform_q, adversarial_q)
 from src.causal_prior.priors import (                              # noqa: E402
-    pc_stability_q, ges_stability_q, bootstrap_l1_q)
+    pc_stability_q, ges_stability_q, bootstrap_l1_q, iamb_stability_q)
 from src.causal_prior.metrics import support_recovery_metrics, selectivity  # noqa: E402
+from src.causal_prior.scorecard import fit_fr, score_auc           # noqa: E402
 from experiments._io import new_run_dir                            # noqa: E402
-
-from sklearn.metrics import roc_auc_score                          # noqa: E402
 
 OUT_DIR = ROOT / 'results' / 'causal_prior' / 'synthetic' / 'recovery_shift'
 TEST_GAMMAS = (1.0, 0.0, -1.0)    # in-dist, correlates->noise, correlates reversed
@@ -62,7 +61,8 @@ CSV_FIELDS = [
     'support', 'k_actual', 'S_recall', 'S_precision', 'causal_precision',
     'correlate_inclusion', 'selectivity', 'auc_indist', 'test_gamma', 'auc', 'delta_auc',
 ]
-SOURCES_ORDER = ('vanilla', 'oracle', 'ges', 'pc', 'uniform', 'adversarial', 'bootstrap_l1')
+SOURCES_ORDER = ('vanilla', 'oracle', 'ges', 'pc', 'iamb', 'gs', 'uniform',
+                 'adversarial', 'bootstrap_l1')
 
 
 def parse_args():
@@ -93,26 +93,9 @@ def parse_args():
     return args
 
 
-def _fit_fr(X, y, k, mu, q):
-    with warnings.catch_warnings():
-        warnings.simplefilter('ignore')
-        from fasterrisk.wrapper import FasterRisk
-        fr = FasterRisk(k=k, mu=float(mu), freq=None if q is None else q.astype(float))
-        fr.fit(X, y)
-    return fr
-
-
 def _support(fr):
     b = fr.betas_[0]
     return sorted(int(j) for j in np.where(np.abs(b) > 0)[0])
-
-
-def _auc(fr, X, y_signed):
-    yb = (y_signed > 0).astype(int)
-    if yb.sum() in (0, len(yb)):
-        return float('nan')
-    p = np.clip(fr.predict_proba(X), 1e-7, 1 - 1e-7)
-    return float(roc_auc_score(yb, p))
 
 
 def build_q_sources(bundle, train, B, rng):
@@ -126,12 +109,19 @@ def build_q_sources(bundle, train, B, rng):
                                    rng=np.random.default_rng(int(rng.integers(2**31))))
         q_l1 = bootstrap_l1_q(train.X, train.y, B=B,
                               rng=np.random.default_rng(int(rng.integers(2**31))))
+        # mb-local learners: the best recoverers in 4.1, now also run through transport
+        q_iamb = iamb_stability_q(train.X, train.y_continuous, B=B, method='iamb',
+                                  rng=np.random.default_rng(int(rng.integers(2**31))))
+        q_gs = iamb_stability_q(train.X, train.y_continuous, B=B, method='gs',
+                                rng=np.random.default_rng(int(rng.integers(2**31))))
     return {
         'oracle':       oracle_q(p, S_star, sigma=0.0),
         'uniform':      uniform_q(p, 0.5),
         'adversarial':  adversarial_q(p, conf),
         'pc':           q_pc,
         'ges':          q_ges,
+        'iamb':         q_iamb,
+        'gs':           q_gs,
         'bootstrap_l1': q_l1,
     }
 
@@ -166,17 +156,17 @@ def run_cell(p_edge, seed, args):
     def metrics_and_aucs(fr):
         sup = _support(fr)
         m = support_recovery_metrics(sup, S_set, C_set, causes=causes, correlates=correlates)
-        aucs = {g: _auc(fr, env.X, env.y) for g, env in tests.items()}
+        aucs = {g: score_auc(fr, env.X, env.y) for g, env in tests.items()}
         return sup, m, aucs
 
     rows: list[dict] = []
-    fr0 = _fit_fr(train.X, train.y, args.k, 0.0, None)    # mu=0 shared vanilla baseline
+    fr0 = fit_fr(train.X, train.y, args.k, 0.0, None)
     sup0, m0, aucs0 = metrics_and_aucs(fr0)
     rows += _rows(args, seed, p_edge, 'vanilla', 0.0, sup0, m0, float('nan'), aucs0)
     for q_source, q in sources.items():
         sel = selectivity(q, S_set, C_set)
         for mu_rel in args.mu_rel:
-            fr = _fit_fr(train.X, train.y, args.k, mu_rel * mu_scale, q)
+            fr = fit_fr(train.X, train.y, args.k, mu_rel * mu_scale, q)
             sup, m, aucs = metrics_and_aucs(fr)
             rows += _rows(args, seed, p_edge, q_source, mu_rel, sup, m, sel, aucs)
     return rows

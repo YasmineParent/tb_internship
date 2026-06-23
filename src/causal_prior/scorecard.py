@@ -31,6 +31,26 @@ def ece(y01, p, n_bins=10):
     return float(e)
 
 
+def fit_fr(X: np.ndarray, y: np.ndarray, k: int, mu: float, q: np.ndarray | None):
+    """Fit FasterRisk(k, mu, freq=q) on (X, y); return the fitted model."""
+    FR = import_fasterrisk()
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore')
+        fr = FR(k=k, mu=float(mu), freq=None if q is None else q.astype(float))
+        fr.fit(X, y)
+    return fr
+
+
+def score_auc(fr, X: np.ndarray, y: np.ndarray, model_idx: int = 0) -> float:
+    """Held-out AUC from a fitted FasterRisk model; y may be signed or binary."""
+    from sklearn.metrics import roc_auc_score
+    yb = (y > 0).astype(int)
+    if yb.sum() in (0, len(yb)):
+        return float('nan')
+    p = np.clip(fr.predict_proba(X, model_idx=model_idx), 1e-7, 1 - 1e-7)
+    return float(roc_auc_score(yb, p))
+
+
 def fit_eval(FasterRisk, X_tr, y_tr, X_te, y_te, mu, q, k, return_card=False):
     fr = FasterRisk(k=k, mu=float(mu), freq=q.astype(float) if q is not None else None)
     fr.fit(X_tr, y_tr)

@@ -2,8 +2,10 @@
 
 regenerates the headline support-recovery panels now that the sweep includes
 iamb (constraint-local mb), the strong source vanilla pc is not. drops oracle
-(non-operational ceiling) and pc (near-noise under fisher-z on dense gaussian
-dags), matching the recovery_plots notebook.
+(non-operational ceiling), pc (near-noise under fisher-z on dense gaussian
+dags), and adversarial (a worst-case control that lives in the q-robustness
+anchor panel, not the across-regime story), leaving four lines: vanilla floor,
+iamb (deployed mb source), ges (global causal), bootstrap_l1 (predictive).
 """
 from __future__ import annotations
 
@@ -35,7 +37,7 @@ def main():
     OUT.mkdir(parents=True, exist_ok=True)
     cv = load_recovery_csvs(CV_DIR)
     cv = cv[~cv['q_source'].str.startswith('pc')]
-    cv = cv[cv['q_source'] != 'oracle']
+    cv = cv[~cv['q_source'].isin(['oracle', 'adversarial'])]
     nz = cv['noise_scale'] == 1.0
 
     def sl(axis):

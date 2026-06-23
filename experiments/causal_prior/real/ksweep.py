@@ -26,10 +26,10 @@ import numpy as np
 import pandas as pd
 from sklearn.model_selection import StratifiedShuffleSplit, train_test_split
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
-sys.path.insert(0, str(REPO_ROOT))
+ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(ROOT))
 
-from src.causal_prior.cv_mu import cv_pick_mu  # noqa: E402
+from src.causal_prior.cv_mu import cv_pick_mu, make_mu_grid  # noqa: E402
 from src.causal_prior.binarize import fit_binarizer, apply_binarizer  # noqa: E402
 from src.causal_prior.priors import discover_q  # noqa: E402
 from src.causal_prior.scorecard import fit_eval, import_fasterrisk  # noqa: E402
@@ -76,8 +76,7 @@ def _split_unit(s, train_abs, test_abs, X_orig, y, q_orig, names, k_grid,
     q_bin = q_orig[parent]
     Xtr, Xte = apply_binarizer(X_orig[train_abs], spec), apply_binarizer(X_orig[test_abs], spec)
     ytr, yte = y[train_abs], y[test_abs]
-    mu_scale = float(np.median(0.5 * np.abs(Xtr.T @ ytr)))
-    mu_grid = np.concatenate([[0.0], np.logspace(-2, 1, 3 if smoke else n_mu)]) * mu_scale
+    mu_scale, mu_grid = make_mu_grid(Xtr, ytr, 3 if smoke else n_mu)
 
     metrics, coefs, trace = [], [], []
     with warnings.catch_warnings():
@@ -155,7 +154,7 @@ def main():
     config = {**vars(args), 'k_grid': args.k_grid, 'n': int(n),
               'p_orig': int(p_orig), 'discovery_n': int(len(disc_idx)),
               'eval_pool_n': int(len(pool_idx)), 'leakage_free': True}
-    output_dir = new_run_dir(REPO_ROOT / 'results' / 'causal_prior' / 'ksweep' / suffix,
+    output_dir = new_run_dir(ROOT / 'results' / 'causal_prior' / 'ksweep' / suffix,
                              config)
     (pd.DataFrame({'feature': names, 'q': q_orig})
      .sort_values('q', ascending=False)

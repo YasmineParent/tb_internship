@@ -22,10 +22,10 @@ import numpy as np
 import pandas as pd
 from sklearn.model_selection import StratifiedShuffleSplit, train_test_split
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
-sys.path.insert(0, str(REPO_ROOT))
+ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(ROOT))
 
-from src.causal_prior.cv_mu import cv_pick_mu  # noqa: E402
+from src.causal_prior.cv_mu import cv_pick_mu, make_mu_grid  # noqa: E402
 from src.causal_prior.binarize import fit_binarizer, apply_binarizer  # noqa: E402
 from src.causal_prior.priors import discover_q  # noqa: E402
 from src.causal_prior.scorecard import fit_eval, import_fasterrisk  # noqa: E402
@@ -61,7 +61,6 @@ def main():
     n, p_orig = X_orig.shape
     print(f'{args.dataset}: n={n}  features={p_orig}  positive={(y > 0).mean():.0%}', flush=True)
 
-    # leakage-free: discover q once on a held-out set disjoint from all eval rows
     pool_idx, disc_idx = train_test_split(np.arange(n), test_size=args.discovery_frac,
                                           stratify=(y > 0), random_state=args.seed)
     print(f'discovery n={len(disc_idx)} (held out), eval pool n={len(pool_idx)}', flush=True)
@@ -78,8 +77,7 @@ def main():
         q_bin = q_orig[parent]
         Xtr, Xte = apply_binarizer(X_orig[tr], spec), apply_binarizer(X_orig[te], spec)
         ytr, yte = y[tr], y[te]
-        mu_scale = float(np.median(0.5 * np.abs(Xtr.T @ ytr)))
-        mu_grid = np.concatenate([[0.0], np.logspace(-2, 1, 3 if args.smoke else 12)]) * mu_scale
+        mu_scale, mu_grid = make_mu_grid(Xtr, ytr, 3 if args.smoke else 12)
         with warnings.catch_warnings():
             warnings.simplefilter('ignore')
             van = fit_eval(FasterRisk, Xtr, ytr, Xte, yte, 0.0, None, args.k)
@@ -104,7 +102,7 @@ def main():
               'discovery_n': int(len(disc_idx)), 'eval_pool_n': int(len(pool_idx)),
               'leakage_free': True, 'mu_hat_rel_mean': float(mu_hats.mean()),
               'mu_hat_nonzero_splits': int((mu_hats > 0).sum())}
-    output_dir = new_run_dir(REPO_ROOT / 'results' / 'causal_prior' / 'parity' / suffix, config)
+    output_dir = new_run_dir(ROOT / 'results' / 'causal_prior' / 'parity' / suffix, config)
 
     (pd.DataFrame({'feature': names, 'q': q_orig})
      .sort_values('q', ascending=False).to_csv(output_dir / 'q.csv', index=False))

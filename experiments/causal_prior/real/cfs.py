@@ -1,39 +1,18 @@
-"""Causal-prior FasterRisk vs causal feature selection (CFS), on any benchmark.
+"""Causal-prior FasterRisk vs causal feature selection (CFS) on real benchmarks.
 
-Unifies the FICO scarcity sweep and the heart comparison: one runner, `--dataset`.
-Every arm RE-SELECTS per resample (the honest stability measure; a fixed cfs
-blanket would be trivially stable), fits a scorecard at matched k, and is scored on
-a held-out split. Reports test AUC (with paired significance), selection stability
-(mean pairwise Jaccard and the Nogueira chance-corrected index), and the soft-vs-
-hard 2x2 ablation.
+Arms (2x2 of ci-test x soft/hard, plus vanilla):
+  vanilla       mu=0
+  causal        soft prior, GES-CG q                       [deployed method]
+  iamb_soft_cg  soft prior, IAMB mi-cg q                  [deployed method, IAMB source]
+  iamb_soft_fz  soft prior, IAMB Fisher-Z q               [ablation: invalid ci-test]
+  cfs_iamb      hard IAMB + Fisher-Z                       [ablation: hard selection]
+  cfs_hiton_mb  hard HITON-MB + Fisher-Z
+  cfs_cg        hard IAMB mi-cg                            [valid hard CFS baseline]
 
-Arms (2x2 of source x use, plus vanilla and cfs_cg):
-  vanilla     mu=0
-  causal       soft prior, q from ges_cg (conditional-gaussian)        [ours]
-  iamb_soft_cg soft prior, q from bnlearn iamb + mi-cg (valid mixed-data) [ours]
-  iamb_soft_fz soft prior, q from pyCausalFS iamb + fisher-z [ablation control]
-  cfs_iamb     hard pre-selection, pyCausalFS iamb + fisher-z (invalid on mixed data)
-  cfs_hiton_mb hard, pyCausalFS hiton-mb + fisher-z
-  cfs_cg       hard, bnlearn iamb + mi-cg (the valid mixed-data causal selector)
+the 2x2 keeps soft-vs-hard orthogonal to the ci-test choice.
 
-the four iamb arms form a ci-test x use 2x2 so soft-vs-hard is never confounded
-with the ci test:
-  soft vs hard @ fisher-z: iamb_soft_fz vs cfs_iamb
-  soft vs hard @ mi-cg:    iamb_soft_cg vs cfs_cg
-  ci test @ soft:          iamb_soft_fz vs iamb_soft_cg
-  ci test @ hard:          cfs_iamb vs cfs_cg
-iamb_soft_fz is a control, not the deployed method (which ships mi-cg). the
-fisher-z cfs arms are Nataliya's requested off-the-shelf comparison.
-
-q-mode (auto): with --n-grid (scarcity sweep, e.g. FICO) q is discovered ONCE on a
-held-out set, disjoint from the eval pool and a fixed test set (leakage-free §6.2
-protocol). Without --n-grid (small data, e.g. heart) q is re-discovered per
-resample on each split's train. Override with --q-mode.
-
-usage:
-    python experiments/causal_prior/real/cfs.py --dataset fico --sentinel-nan --n-grid 150,300,600,1200
-    python experiments/causal_prior/real/cfs.py --dataset heart --reps 25
-    python experiments/causal_prior/real/cfs.py --dataset heart --smoke
+q-mode: with --n-grid q is discovered once on a held-out split (leakage-free);
+without it q is re-discovered per resample on each split's train.
 """
 from __future__ import annotations
 
@@ -47,10 +26,10 @@ import pandas as pd
 from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import StratifiedShuffleSplit, train_test_split
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
-sys.path.insert(0, str(REPO_ROOT))
+ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(ROOT))
 
-from src.causal_prior.cv_mu import cv_pick_mu  # noqa: E402
+from src.causal_prior.cv_mu import cv_pick_mu, make_mu_grid  # noqa: E402
 from src.causal_prior.priors import bnlearn_mb, bnlearn_mb_stability_q, discover_q  # noqa: E402
 from src.causal_prior.binarize import fit_binarizer, apply_binarizer  # noqa: E402
 from src.causal_prior.scorecard import import_fasterrisk  # noqa: E402
@@ -64,7 +43,7 @@ ARMS = ['vanilla', 'causal', 'iamb_soft_cg', 'iamb_soft_fz',
 
 
 def _blankets(Xs, ys, alpha):
-    """cfs markov blankets, re-selected on this (sub)sample at the original-feature level."""
+    """re-select all CFS blankets on this (sub)sample."""
     with warnings.catch_warnings():
         warnings.simplefilter('ignore')
         return {'cfs_iamb': cfs_fisherz('iamb', Xs, ys, alpha),
@@ -74,14 +53,12 @@ def _blankets(Xs, ys, alpha):
 
 def _eval_split(Xtr_o, ytr, Xte_o, yte01, q_orig, qi_cg_orig, qi_fz_orig, mbs, names, k,
                 n_thresholds, n_mu, mu_rel, n_cv, seed_tuple):
-    """binarize train-only, fit every arm, score on the test rows. returns auc +
-    original-feature support per arm (and the causal mu_hat_rel)."""
+    """fit all arms on one train/test split; return per-arm auc + support + mu_hat_rel."""
     FR = import_fasterrisk()
     spec, _, parent = fit_binarizer(Xtr_o, names.tolist(), n_thresholds)
     Xtr, Xte = apply_binarizer(Xtr_o, spec), apply_binarizer(Xte_o, spec)
     all_cols = np.arange(Xtr.shape[1])
-    mu_scale = float(np.median(0.5 * np.abs(Xtr.T @ ytr)))
-    mu_grid = np.concatenate([[0.0], np.logspace(-2, 1, n_mu)]) * mu_scale
+    mu_scale, mu_grid = make_mu_grid(Xtr, ytr, n_mu)
 
     def supp(cols, betas):
         nz = np.nonzero(np.asarray(betas))[0]
@@ -123,8 +100,7 @@ def _eval_split(Xtr_o, ytr, Xte_o, yte01, q_orig, qi_cg_orig, qi_fz_orig, mbs, n
 
 
 def _unit_heldout(n, r, train_pool, test_abs, X_orig, y, q_orig, qi_cg_orig, qi_fz_orig, names, args):
-    """one resample at size n: q fixed (discovered once on the held-out set), cfs
-    blankets re-selected on the subsample, fixed test set."""
+    """one resample (heldout-q mode): q fixed, blankets re-selected on the subsample."""
     sub = np.random.default_rng((args.seed, n, r)).choice(train_pool, size=n, replace=False)
     Xs, ys = X_orig[sub], y[sub]
     mbs = _blankets(Xs, ys, args.alpha)
@@ -136,8 +112,7 @@ def _unit_heldout(n, r, train_pool, test_abs, X_orig, y, q_orig, qi_cg_orig, qi_
 
 
 def _unit_resample(n, r, X_orig, y, names, args):
-    """one resample: a fresh stratified split; q, both iamb soft q's (mi-cg and the
-    fisher-z control) and cfs blankets all re-discovered on this split's train."""
+    """one resample (per-resample mode): fresh split, all q-sources and blankets re-discovered."""
     sss = StratifiedShuffleSplit(n_splits=1, test_size=args.test_frac, random_state=args.seed + r)
     (tr, te), = sss.split(X_orig, (y > 0).astype(int))
     if n is not None and n < len(tr):
@@ -274,7 +249,7 @@ def main():
     summ = _summary(res, names).round(4)
     long, causal, ablation = _contrasts(res)
 
-    out = new_run_dir(REPO_ROOT / 'results' / 'causal_prior' / 'cfs' / f'{args.dataset}_k{args.k}',
+    out = new_run_dir(ROOT / 'results' / 'causal_prior' / 'cfs' / f'{args.dataset}_k{args.k}',
                       {**vars(args), 'leakage_free': True})
     summ.to_csv(out / 'summary.csv', index=False)
     long.to_csv(out / 'resamples.csv', index=False)

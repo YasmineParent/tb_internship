@@ -1,3 +1,0 @@
-n,mu_nonzero_frac,auc_vanilla,stab_vanilla,nog_vanilla,auc_causal,stab_causal,nog_causal,auc_iamb_soft,stab_iamb_soft,nog_iamb_soft,auc_cfs_iamb,stab_cfs_iamb,nog_cfs_iamb,auc_cfs_hiton_mb,stab_cfs_hiton_mb,nog_cfs_hiton_mb,auc_cfs_cg,stab_cfs_cg,nog_cfs_cg
-300,1.0,0.7284,0.2435,0.2261,0.7336,0.6237,0.7251,0.7461,0.7167,0.8056,0.742,0.3048,0.4067,0.742,0.3556,0.4758,0.5976,0.1111,0.1288
-600,1.0,0.7599,0.4127,0.4705,0.7563,0.5872,0.6767,0.7659,0.7333,0.8175,0.7617,0.5556,0.6759,0.761,0.4036,0.5074,0.6824,0.5139,0.6455

@@ -22,10 +22,10 @@ import pandas as pd
 from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import StratifiedShuffleSplit
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
-sys.path.insert(0, str(REPO_ROOT))
+ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(ROOT))
 
-from src.causal_prior.cv_mu import cv_pick_mu  # noqa: E402
+from src.causal_prior.cv_mu import cv_pick_mu, make_mu_grid  # noqa: E402
 from src.causal_prior.priors import bnlearn_mb, bnlearn_mb_stability_q, discover_q  # noqa: E402
 from src.causal_prior.binarize import fit_binarizer, apply_binarizer  # noqa: E402
 from src.causal_prior.scorecard import import_fasterrisk  # noqa: E402
@@ -85,8 +85,6 @@ def main():
         Xtr_o, ytr = X_orig[tr], y[tr]
         Xte_o, yte = X_orig[te], (y[te] > 0).astype(int)
 
-        # discover once per resample (leakage-free: train rows only); only the
-        # requested arms are discovered, so big datasets can skip the slow mi-cg/cfs.
         q = qi_cg = qi_fz = None
         mbs = {}
         with warnings.catch_warnings():
@@ -106,12 +104,10 @@ def main():
             if 'cfs_cg' in want:
                 mbs['cfs_cg'] = bnlearn_mb(Xtr_o, ytr, method='iamb', test='mi-cg', alpha=args.alpha)
 
-        # binarize on train rows only
         spec, _, parent = fit_binarizer(Xtr_o, names.tolist(), args.n_thresholds)
         Xtr, Xte = apply_binarizer(Xtr_o, spec), apply_binarizer(Xte_o, spec)
         allc = np.arange(Xtr.shape[1])
-        mu_scale = float(np.median(0.5 * np.abs(Xtr.T @ ytr)))
-        mu_grid = np.concatenate([[0.0], np.logspace(-2, 1, args.n_mu)]) * mu_scale
+        mu_scale, mu_grid = make_mu_grid(Xtr, ytr, args.n_mu)
 
         def auc(fr, cols):
             return float(roc_auc_score(yte, np.clip(fr.predict_proba(Xte[:, cols]), 1e-7, 1 - 1e-7)))
@@ -146,7 +142,7 @@ def main():
 
     df = pd.DataFrame(rows, columns=['rep', 'arm', 'k', 'auc'])
     df['n'], df['p'] = len(tr), len(names)
-    out = new_run_dir(REPO_ROOT / 'results' / 'causal_prior' / 'ksweep_cfs' / args.dataset, vars(args))
+    out = new_run_dir(ROOT / 'results' / 'causal_prior' / 'ksweep_cfs' / args.dataset, vars(args))
     df.to_csv(out / 'ksweep_arms.csv', index=False)
     print(f'saved {out}', flush=True)
 

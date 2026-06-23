@@ -39,8 +39,8 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import roc_auc_score
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
-sys.path.insert(0, str(REPO_ROOT))
+ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(ROOT))
 
 from src.causal_prior.priors import bnlearn_mb, discover_q  # noqa: E402
 from src.causal_prior.binarize import fit_binarizer, apply_binarizer  # noqa: E402
@@ -48,7 +48,7 @@ from src.causal_prior.scorecard import import_fasterrisk  # noqa: E402
 from src.causal_prior.baselines import cfs_fisherz  # noqa: E402
 from experiments._io import new_run_dir  # noqa: E402
 
-DATA_ROOT = REPO_ROOT / 'data' / 'real' / 'folktables'
+DATA_ROOT = ROOT / 'data' / 'real' / 'folktables'
 
 
 def _task_cfg(task):
@@ -270,7 +270,7 @@ def main():
     for t in targets:
         summ[f'gap_{t}'] = (summ['auc_source'] - summ[f'auc_{t}']).round(4)
 
-    out = new_run_dir(REPO_ROOT / 'results' / 'causal_prior' / 'folktables_transport'
+    out = new_run_dir(ROOT / 'results' / 'causal_prior' / 'folktables_transport'
                       / f'{args.source}_to_{"-".join(targets)}_{args.year}_musweep',
                       {**vars(args), 'features': names.tolist()})
     long.to_csv(out / 'seeds.csv', index=False)

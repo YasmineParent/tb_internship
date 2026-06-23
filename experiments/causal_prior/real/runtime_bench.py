@@ -34,11 +34,11 @@ import numpy as np
 import pandas as pd
 from sklearn.model_selection import StratifiedShuffleSplit
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
-sys.path.insert(0, str(REPO_ROOT))
+ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(ROOT))
 
 from src.causal_prior.binarize import fit_binarizer, apply_binarizer  # noqa: E402
-from src.causal_prior.cv_mu import cv_pick_mu  # noqa: E402
+from src.causal_prior.cv_mu import cv_pick_mu, make_mu_grid  # noqa: E402
 from src.causal_prior.priors import bnlearn_mb, bnlearn_mb_stability_q  # noqa: E402
 from src.causal_prior.scorecard import import_fasterrisk, fit_eval  # noqa: E402
 from experiments.causal_prior.real.datasets import load_dataset  # noqa: E402
@@ -71,8 +71,7 @@ def bench_dataset(name: str, k: int, n_thresholds: int, b: int,
     p_bin = Xtr.shape[1]
     all_cols = np.arange(p_bin)
 
-    mu_scale = float(np.median(0.5 * np.abs(Xtr.T @ ytr)))
-    mu_grid = np.concatenate([[0.0], np.logspace(-2, 1, n_mu)]) * mu_scale
+    mu_scale, mu_grid = make_mu_grid(Xtr, ytr, n_mu)
     mu_fast = mu_fast_rel * mu_scale
 
     FR = import_fasterrisk()
@@ -146,7 +145,7 @@ def main() -> None:
     p.add_argument('--test-frac', type=float, default=0.3)
     p.add_argument('--seed', type=int, default=0)
     p.add_argument('--out-dir', type=Path,
-                   default=REPO_ROOT / 'results' / 'causal_prior' / 'real' / 'runtime')
+                   default=ROOT / 'results' / 'causal_prior' / 'real' / 'runtime')
     args = p.parse_args()
 
     datasets = [d.strip() for d in args.datasets.split(',') if d.strip()]

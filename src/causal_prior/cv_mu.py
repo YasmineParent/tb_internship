@@ -65,6 +65,14 @@ def _mean_pairwise_jaccard(supports: list[list[int]]) -> float:
     return float(np.mean(pairs)) if pairs else 0.0
 
 
+def make_mu_grid(X: np.ndarray, y: np.ndarray, n_mu: int = 8) -> tuple[float, np.ndarray]:
+    """Return (mu_scale, mu_grid) where mu_scale = median(0.5*|X^T y|) and
+    mu_grid = [0] + logspace(-2, 1, n_mu) * mu_scale."""
+    mu_scale = float(np.median(0.5 * np.abs(X.T @ y)))
+    mu_grid = np.concatenate([[0.0], np.logspace(-2, 1, n_mu)]) * mu_scale
+    return mu_scale, mu_grid
+
+
 def cv_pick_mu(X: np.ndarray, y: np.ndarray, K: int,
                mu_grid: np.ndarray, q: np.ndarray | None,
                n_splits: int = 5,
