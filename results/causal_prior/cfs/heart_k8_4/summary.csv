@@ -1,7 +1,0 @@
-,auc_mean,auc_std,stability_jaccard,stability_nogueira,mean_support_size
-vanilla,0.8943,0.0321,0.5547,0.5493,7.4
-causal,0.8954,0.036,0.5289,0.5426,6.6
-iamb_soft,0.8888,0.0335,0.5938,0.5952,6.6
-cfs_iamb,0.8689,0.0292,0.8067,0.8425,6.8
-cfs_hiton_mb,0.8584,0.0361,0.7135,0.7632,5.64
-cfs_cg,0.8613,0.0306,0.4628,0.5342,3.28
