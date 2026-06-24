@@ -52,13 +52,14 @@ def _blankets(Xs, ys, alpha):
 
 
 def _eval_split(Xtr_o, ytr, Xte_o, yte01, q_orig, qi_cg_orig, qi_fz_orig, mbs, names, k,
-                n_thresholds, n_mu, mu_rel, n_cv, seed_tuple):
+                n_thresholds, n_mu, mu_rel, n_cv, seed_tuple,
+                criterion='log_loss', mu_hi=1.0):
     """fit all arms on one train/test split; return per-arm auc + support + mu_hat_rel."""
     FR = import_fasterrisk()
     spec, _, parent = fit_binarizer(Xtr_o, names.tolist(), n_thresholds)
     Xtr, Xte = apply_binarizer(Xtr_o, spec), apply_binarizer(Xte_o, spec)
     all_cols = np.arange(Xtr.shape[1])
-    mu_scale, mu_grid = make_mu_grid(Xtr, ytr, n_mu)
+    mu_scale, mu_grid = make_mu_grid(Xtr, ytr, n_mu, hi=mu_hi)
 
     def supp(cols, betas):
         nz = np.nonzero(np.asarray(betas))[0]
@@ -73,7 +74,7 @@ def _eval_split(Xtr_o, ytr, Xte_o, yte01, q_orig, qi_cg_orig, qi_fz_orig, mbs, n
             mu = mu_rel * mu_scale
         else:
             mu = cv_pick_mu(Xtr, ytr, K=k, mu_grid=mu_grid, q=qb, n_splits=n_cv,
-                            criterion='log_loss',
+                            criterion=criterion,
                             rng=np.random.default_rng(seed_tuple + (tag,))).mu_star
         fr = FR(k=k, mu=float(mu), freq=qb.astype(float)); fr.fit(Xtr, ytr)
         return auc(fr, all_cols), supp(all_cols, fr.betas_[0]), mu / (mu_scale or 1.0)
@@ -106,7 +107,8 @@ def _unit_heldout(n, r, train_pool, test_abs, X_orig, y, q_orig, qi_cg_orig, qi_
     mbs = _blankets(Xs, ys, args.alpha)
     rec = _eval_split(Xs, ys, X_orig[test_abs], (y[test_abs] > 0).astype(int),
                       q_orig, qi_cg_orig, qi_fz_orig, mbs, names, args.k, args.n_thresholds, args.n_mu,
-                      args.mu_rel, args.n_cv, (args.seed, n, r))
+                      args.mu_rel, args.n_cv, (args.seed, n, r),
+                      criterion=args.criterion, mu_hi=args.mu_hi)
     rec['n'], rec['rep'] = n, r
     return rec
 
@@ -128,7 +130,8 @@ def _unit_resample(n, r, X_orig, y, names, args):
         mbs = _blankets(Xtr_o, ytr, args.alpha)
     rec = _eval_split(Xtr_o, ytr, X_orig[te], (y[te] > 0).astype(int), q, qi_cg, qi_fz, mbs, names,
                       args.k, args.n_thresholds, args.n_mu, args.mu_rel, args.n_cv,
-                      (args.seed, n or 0, r))
+                      (args.seed, n or 0, r),
+                      criterion=args.criterion, mu_hi=args.mu_hi)
     rec['n'], rec['rep'] = (n if n else len(tr)), r
     return rec
 
@@ -182,6 +185,10 @@ def parse_args():
     p.add_argument('--test-frac', type=float, default=0.3, help='per-resample mode: test fraction')
     p.add_argument('--n-mu', type=int, default=8)
     p.add_argument('--mu-rel', type=float, default=-1.0, help='fixed relative mu; >=0 skips inner cv')
+    p.add_argument('--criterion', choices=['log_loss', 'auc', 'stability'], default='auc',
+                   help='inner-cv criterion for picking mu; auc is right for imbalanced real data')
+    p.add_argument('--mu-hi', type=float, default=1.5,
+                   help='log10 upper bound on mu_rel grid (1.5 -> up to ~31x mu_scale)')
     p.add_argument('--b', type=int, default=50)
     p.add_argument('--alpha', type=float, default=0.05)
     p.add_argument('--n_cv', type=int, default=5)

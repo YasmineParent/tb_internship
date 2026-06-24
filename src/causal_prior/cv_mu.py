@@ -65,11 +65,15 @@ def _mean_pairwise_jaccard(supports: list[list[int]]) -> float:
     return float(np.mean(pairs)) if pairs else 0.0
 
 
-def make_mu_grid(X: np.ndarray, y: np.ndarray, n_mu: int = 8) -> tuple[float, np.ndarray]:
+def make_mu_grid(X: np.ndarray, y: np.ndarray, n_mu: int = 8,
+                 hi: float = 1.0) -> tuple[float, np.ndarray]:
     """Return (mu_scale, mu_grid) where mu_scale = median(0.5*|X^T y|) and
-    mu_grid = [0] + logspace(-2, 1, n_mu) * mu_scale."""
+    mu_grid = [0] + logspace(-2, hi, n_mu) * mu_scale. hi is the log10 upper
+    bound on mu_rel (hi=1.0 -> up to 10x mu_scale; hi=1.5 -> ~31x). Real
+    imbalanced data can need a higher mu than 10x to displace strong spurious
+    correlates, so the benchmark runners pass a wider grid."""
     mu_scale = float(np.median(0.5 * np.abs(X.T @ y)))
-    mu_grid = np.concatenate([[0.0], np.logspace(-2, 1, n_mu)]) * mu_scale
+    mu_grid = np.concatenate([[0.0], np.logspace(-2, hi, n_mu)]) * mu_scale
     return mu_scale, mu_grid
 
 
