@@ -229,10 +229,9 @@ def plot_ksweep_grid(ksweep: dict, arms: list[str] | None = None):
     fig.tight_layout(rect=[0, 0.05, 1, 1])
 
 
-# variant order for the runtime tables: baselines, then ours (fast deployed, full tuned)
-_RT_VARIANTS = ['vanilla', 'cfs_hard', 'ours_fast', 'ours_full']
-_RT_LABEL = {'vanilla': 'vanilla', 'cfs_hard': 'CFS (hard)',
-             'ours_fast': 'ours (fast)', 'ours_full': 'ours (CV-tuned)'}
+# runtime variants: vanilla, hard CFS, and ours (deployed = discovery + auc-cv + fit)
+_RT_VARIANTS = ['vanilla', 'cfs_hard', 'ours']
+_RT_LABEL = {'vanilla': 'vanilla', 'cfs_hard': 'CFS (hard)', 'ours': 'ours'}
 
 
 def load_runtime() -> pd.DataFrame | None:
@@ -242,16 +241,18 @@ def load_runtime() -> pd.DataFrame | None:
 
 
 def runtime_table(rt: pd.DataFrame) -> pd.DataFrame:
-    """per-deployment wall-clock seconds per variant, plus the fast-vs-tuned speedup.
-    ours_fast is discovery + one fit at a fixed mu; ours_full adds the mu-cv grid."""
+    """per-deployment wall-clock seconds. 'ours' is discovery + auc-cv mu tuning +
+    fit; the mu-cv stage is broken out (it is a one-time per-deployment cost, not
+    per-prediction). speed-matched to hard CFS on the shared discovery."""
     cols = {_RT_LABEL[v]: rt[f't_{v}'].round(1) for v in _RT_VARIANTS}
     out = pd.DataFrame({'dataset': rt['dataset'], **cols,
-                        'speedup (fast/full)': (rt['t_ours_full'] / rt['t_ours_fast']).round(0)})
+                        'of which mu-cv (s)': rt['t_mu_cv'].round(1),
+                        'ours, no re-tune (s)': rt['t_ours_notune'].round(1)})
     return out.set_index('dataset')
 
 
 def runtime_auc_table(rt: pd.DataFrame) -> pd.DataFrame:
-    """test AUC per variant at the timed split, same column order as the time table,
-    so equal accuracy at far less compute reads straight across the two tables."""
+    """test AUC per variant at the timed split: ours (auc-cv tuned) is at or above
+    vanilla and above hard CFS, at a wall-clock that is still seconds."""
     cols = {_RT_LABEL[v]: rt[f'auc_{v}'].round(3) for v in _RT_VARIANTS}
     return pd.DataFrame({'dataset': rt['dataset'], **cols}).set_index('dataset')

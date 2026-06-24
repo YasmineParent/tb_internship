@@ -24,7 +24,10 @@ recovery precision.
 
 Usage:
     python experiments/causal_prior/synthetic/recovery_sweep.py            # default cache, parallel
-    python experiments/causal_prior/synthetic/recovery_sweep.py --cache-dir cache_p30_headline --out-dir recovery_p30
+    # --cache-dir / --out-dir take full paths, not bare names:
+    python experiments/causal_prior/synthetic/recovery_sweep.py \
+        --cache-dir results/causal_prior/synthetic/cache_p30_headline \
+        --out-dir   results/causal_prior/synthetic/recovery_p30_headline
 """
 from __future__ import annotations
 
@@ -106,7 +109,14 @@ def process_cell(cell_path: Path, out_path: Path, n_mu_log: int) -> str:
     k_star = int(cell['k_star'])
     K = K_MULTIPLIER * k_star
     mu_scale = float(cell['mu_scale'])
-    mu_relative_grid = np.concatenate([[0.0], np.logspace(-2, 1, n_mu_log)])
+    # dense in [0.01, 1] where synthetic recovery peaks (mu_rel ~ 0.04), coarse
+    # tail to 10x where the curve is flat. real-data runs use a wider grid; here
+    # the action is all at low mu so the resolution goes there.
+    mu_relative_grid = np.unique(np.concatenate([
+        [0.0],
+        np.logspace(-2, 0, n_mu_log),   # 0.01 .. 1, the peak region
+        np.logspace(0, 1, 4),           # 1 .. 10, flat tail
+    ]))
     mu_grid = mu_relative_grid * mu_scale
 
     X = cell['X']

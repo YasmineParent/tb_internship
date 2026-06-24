@@ -52,11 +52,12 @@ def _loader_args(sentinel_nan: bool) -> types.SimpleNamespace:
 
 
 def bench_dataset(name: str, k: int, n_thresholds: int, b: int,
-                  n_mu: int, n_cv: int, alpha: float, mu_fast_rel: float,
+                  n_mu: int, n_cv: int, alpha: float, mu_hi: float,
                   test_frac: float, seed: int) -> dict:
-    """one train/test split: discover q on train, then time AND score (test AUC)
-    each variant. the fast variant uses a fixed mu (no grid); the full variant
-    runs cv_pick_mu. timing is on the train split (~the deployment cost)."""
+    """one train/test split: discover q on train, then time + score each variant.
+    'ours' is the deployed pipeline: discovery + auc-cv mu tuning + one fit. the
+    mu-cv tuning is a one-time per-deployment cost (you tune once and ship the
+    fixed scorecard), so the timing breakdown reports it separately."""
     args = _loader_args(sentinel_nan=(name == 'fico'))
     X_orig, names, y = load_dataset(name, args)
     n, p_orig = X_orig.shape
@@ -71,8 +72,7 @@ def bench_dataset(name: str, k: int, n_thresholds: int, b: int,
     p_bin = Xtr.shape[1]
     all_cols = np.arange(p_bin)
 
-    mu_scale, mu_grid = make_mu_grid(Xtr, ytr, n_mu)
-    mu_fast = mu_fast_rel * mu_scale
+    mu_scale, mu_grid = make_mu_grid(Xtr, ytr, n_mu, hi=mu_hi)
 
     FR = import_fasterrisk()
     rng = np.random.default_rng(seed)
@@ -92,41 +92,34 @@ def bench_dataset(name: str, k: int, n_thresholds: int, b: int,
         van = fit_eval(FR, Xtr, ytr, Xte, yte, mu=0.0, q=None, k=k)
         t_van_fit = time.perf_counter() - t0
 
-        # ours_fast: one fit at a fixed mu with the soft prior, scored on test
-        t0 = time.perf_counter()
-        fast = fit_eval(FR, Xtr, ytr, Xte, yte, mu=mu_fast, q=q_bin, k=k)
-        t_fast_fit = time.perf_counter() - t0
-
-        # ours_full: cv pick mu over the grid, then refit at mu_star and score
+        # ours: auc-cv mu tuning (the one-time cost), then one refit at mu_star
         t0 = time.perf_counter()
         cv = cv_pick_mu(Xtr, ytr, K=k, mu_grid=mu_grid, q=q_bin, n_splits=n_cv,
-                        criterion='log_loss', rng=rng)
+                        criterion='auc', rng=rng)
         t_mucv = time.perf_counter() - t0
-        full = fit_eval(FR, Xtr, ytr, Xte, yte, mu=cv.mu_star, q=q_bin, k=k)
+        t0 = time.perf_counter()
+        ours = fit_eval(FR, Xtr, ytr, Xte, yte, mu=cv.mu_star, q=q_bin, k=k)
+        t_fit = time.perf_counter() - t0
 
         # cfs hard: select a blanket, fit on those columns, scored on test
         t0 = time.perf_counter()
         mb = bnlearn_mb(Xtr_o, ytr, method='iamb', test='mi-cg', alpha=alpha)
         t_cfs_sel = time.perf_counter() - t0
         cols = all_cols[np.isin(parent, mb)] if mb else all_cols[:0]
-        if len(cols):
-            cfs = fit_eval(FR, Xtr[:, cols], ytr, Xte[:, cols], yte, mu=0.0, q=None, k=k)
-            auc_cfs = cfs['auc']
-        else:
-            auc_cfs = float('nan')
+        auc_cfs = (fit_eval(FR, Xtr[:, cols], ytr, Xte[:, cols], yte, mu=0.0, q=None, k=k)['auc']
+                   if len(cols) else float('nan'))
 
     return {
         'dataset': name, 'n': n, 'p_orig': p_orig, 'p_bin': p_bin,
         't_discovery': t_disc, 't_cfs_select': t_cfs_sel,
-        't_fit': t_fast_fit, 't_mu_cv': t_mucv, 'mu_star_rel': cv.mu_star / mu_scale,
+        't_fit': t_fit, 't_mu_cv': t_mucv, 'mu_star_rel': cv.mu_star / mu_scale,
         # derived per-deployment wall-clock
         't_vanilla': t_van_fit,
-        't_ours_fast': t_disc + t_fast_fit,
-        't_ours_full': t_disc + t_mucv + t_fast_fit,
-        't_cfs_hard': t_cfs_sel + t_fast_fit,
+        't_ours': t_disc + t_mucv + t_fit,        # discovery + auc-cv tuning + fit
+        't_ours_notune': t_disc + t_fit,          # same minus the one-time tuning
+        't_cfs_hard': t_cfs_sel + t_fit,
         # test auc per variant
-        'auc_vanilla': van['auc'], 'auc_ours_fast': fast['auc'],
-        'auc_ours_full': full['auc'], 'auc_cfs_hard': auc_cfs,
+        'auc_vanilla': van['auc'], 'auc_ours': ours['auc'], 'auc_cfs_hard': auc_cfs,
     }
 
 
@@ -140,8 +133,8 @@ def main() -> None:
     p.add_argument('--n-mu', type=int, default=8)
     p.add_argument('--n-cv', type=int, default=5)
     p.add_argument('--alpha', type=float, default=0.05)
-    p.add_argument('--mu-fast-rel', type=float, default=0.1,
-                   help='fixed relative mu for the fast variant (no cv grid)')
+    p.add_argument('--mu-hi', type=float, default=2.0,
+                   help='log10 upper bound on the mu-cv grid (matches cfs.py)')
     p.add_argument('--test-frac', type=float, default=0.3)
     p.add_argument('--seed', type=int, default=0)
     p.add_argument('--out-dir', type=Path,
@@ -154,13 +147,13 @@ def main() -> None:
         print(f'timing {name}...', flush=True)
         t0 = time.perf_counter()
         row = bench_dataset(name, args.k, args.n_thresholds, args.b, args.n_mu,
-                            args.n_cv, args.alpha, args.mu_fast_rel, args.test_frac,
+                            args.n_cv, args.alpha, args.mu_hi, args.test_frac,
                             args.seed)
         rows.append(row)
         print(f'  {name}: n={row["n"]} p_bin={row["p_bin"]} '
               f'discovery={row["t_discovery"]:.2f}s mu_cv={row["t_mu_cv"]:.2f}s '
-              f'fit={row["t_fit"]:.3f}s | auc fast={row["auc_ours_fast"]:.3f} '
-              f'full={row["auc_ours_full"]:.3f}  (wall {time.perf_counter()-t0:.1f}s)',
+              f'fit={row["t_fit"]:.3f}s | auc ours={row["auc_ours"]:.3f} '
+              f'vanilla={row["auc_vanilla"]:.3f}  (wall {time.perf_counter()-t0:.1f}s)',
               flush=True)
 
     df = pd.DataFrame(rows)
@@ -170,16 +163,15 @@ def main() -> None:
 
     stages = df[['dataset', 'n', 'p_bin', 't_discovery', 't_cfs_select',
                  't_fit', 't_mu_cv', 'mu_star_rel']].round(3)
-    wall = df[['dataset', 't_vanilla', 't_cfs_hard', 't_ours_fast',
-               't_ours_full']].round(3)
-    auc = df[['dataset', 'auc_vanilla', 'auc_cfs_hard', 'auc_ours_fast',
-              'auc_ours_full']].round(4)
+    wall = df[['dataset', 't_vanilla', 't_cfs_hard', 't_ours_notune',
+               't_ours']].round(3)
+    auc = df[['dataset', 'auc_vanilla', 'auc_cfs_hard', 'auc_ours']].round(4)
     print('\n== per-stage seconds ==\n' + stages.to_string(index=False), flush=True)
     print('\n== per-deployment wall-clock (s) ==\n' + wall.to_string(index=False), flush=True)
     print('\n== test auc ==\n' + auc.to_string(index=False), flush=True)
-    speedup = (df['t_ours_full'] / df['t_ours_fast']).round(1)
-    print(f'\nfast speedup over full (x): {speedup.tolist()}', flush=True)
-    print(f'\nsaved {out}', flush=True)
+    print('\nmu-cv is a one-time tuning cost; t_ours_notune is deploy without re-tuning.',
+          flush=True)
+    print(f'saved {out}', flush=True)
 
 
 if __name__ == '__main__':
