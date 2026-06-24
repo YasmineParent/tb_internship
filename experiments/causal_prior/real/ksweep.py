@@ -76,7 +76,7 @@ def _split_unit(s, train_abs, test_abs, X_orig, y, q_orig, names, k_grid,
     q_bin = q_orig[parent]
     Xtr, Xte = apply_binarizer(X_orig[train_abs], spec), apply_binarizer(X_orig[test_abs], spec)
     ytr, yte = y[train_abs], y[test_abs]
-    mu_scale, mu_grid = make_mu_grid(Xtr, ytr, 3 if smoke else n_mu)
+    mu_scale, mu_grid = make_mu_grid(Xtr, ytr, 3 if smoke else n_mu, hi=2.0)
 
     metrics, coefs, trace = [], [], []
     with warnings.catch_warnings():
@@ -84,7 +84,7 @@ def _split_unit(s, train_abs, test_abs, X_orig, y, q_orig, names, k_grid,
         for k in k_grid:
             van = fit_eval(FasterRisk, Xtr, ytr, Xte, yte, 0.0, None, k, return_card=True)
             cv = cv_pick_mu(Xtr, ytr, K=k, mu_grid=mu_grid, q=q_bin, n_splits=n_cv,
-                            criterion='log_loss', rng=np.random.default_rng(seed + s))
+                            criterion='auc', rng=np.random.default_rng(seed + s))
             cau = fit_eval(FasterRisk, Xtr, ytr, Xte, yte, cv.mu_star, q_bin, k,
                            return_card=True)
             mu_hat_rel = cv.mu_star / mu_scale if mu_scale else 0.0

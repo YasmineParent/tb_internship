@@ -106,7 +106,7 @@ def main():
     ytr, yte = y[tr_idx], (y[te_idx] > 0).astype(int)
 
     FR = import_fasterrisk()
-    mu_scale, mu_grid = make_mu_grid(Xtr, ytr, args.n_mu)
+    mu_scale, mu_grid = make_mu_grid(Xtr, ytr, args.n_mu, hi=2.0)
     with warnings.catch_warnings():
         warnings.simplefilter('ignore')
         van = FR(k=args.k, mu=0.0, freq=None); van.fit(Xtr, ytr)
@@ -114,7 +114,7 @@ def main():
             mu_star = args.mu_rel * mu_scale
         else:
             mu_star = cv_pick_mu(Xtr, ytr, K=args.k, mu_grid=mu_grid, q=q_bin,
-                                 n_splits=args.n_cv, criterion='log_loss',
+                                 n_splits=args.n_cv, criterion='auc',
                                  rng=np.random.default_rng(args.seed)).mu_star
         cau = FR(k=args.k, mu=float(mu_star), freq=q_bin.astype(float)); cau.fit(Xtr, ytr)
     mu_hat_rel = mu_star / (mu_scale or 1.0)

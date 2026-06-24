@@ -79,7 +79,9 @@ def process_cell(path, B, alpha, n_mu, n_splits):
     part = causal_partition(seed, p, float(cell['p_edge']), k_star)
     causes, correlates = part['all_causes'], part['correlates']
 
-    mu_grid = np.concatenate([[0.0], np.logspace(-2, 1, n_mu)]) * mu_scale
+    # fixed mu_rel=1 (recovery is not predictive on balanced synthetic data; a
+    # CV-picked mu is arbitrary for it). single-value grid = evaluate at fixed mu.
+    mu_grid = np.array([1.0]) * mu_scale
     K = 2 * k_star
     rng = np.random.default_rng(seed)
     sources = build_sources(cell, p, S_star, confounded, B, alpha, seed)

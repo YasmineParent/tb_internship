@@ -60,7 +60,7 @@ SOURCES = ('oracle', 'uniform', 'adversarial', 'pc', 'ges', 'iamb', 'bootstrap_l
 
 CSV_FIELDS = [
     'seed', 'p', 'n', 'k_star', 'p_edge', 'noise_scale', 'mu_scale',
-    'q_source', 'mu', 'mu_relative', 'K',
+    'q_source', 'mu', 'mu_relative', 'K', 'K_multiplier',
     'support', 'k_actual',
     'S_recall', 'S_precision', 'C_inclusion',
     'causal_precision', 'correlate_inclusion',
@@ -103,11 +103,11 @@ def fit_and_score(FasterRisk, X: np.ndarray, y: np.ndarray, K: int,
     return support, time.time() - t
 
 
-def process_cell(cell_path: Path, out_path: Path, n_mu_log: int) -> str:
+def process_cell(cell_path: Path, out_path: Path, n_mu_log: int,
+                 k_multipliers=(K_MULTIPLIER,)) -> str:
     cell = np.load(cell_path, allow_pickle=False)
     p = int(cell['p'])
     k_star = int(cell['k_star'])
-    K = K_MULTIPLIER * k_star
     mu_scale = float(cell['mu_scale'])
     # dense in [0.01, 1] where synthetic recovery peaks (mu_rel ~ 0.04), coarse
     # tail to 10x where the curve is flat. real-data runs use a wider grid; here
@@ -143,22 +143,24 @@ def process_cell(cell_path: Path, out_path: Path, n_mu_log: int) -> str:
         'noise_scale': float(cell['noise_scale']) if 'noise_scale' in cell.files else 1.0,
         'mu_scale': mu_scale,
     }
-    for q_source, q in sources.items():
-        for mu, mu_rel in zip(mu_grid, mu_relative_grid):
-            support, fit_seconds = fit_and_score(FasterRisk, X, y, K, mu, q)
-            m = support_recovery_metrics(support, S_set, C_set,
-                                         causes=causes, correlates=correlates)
-            rows.append({**base_id,
-                'q_source': q_source,
-                'mu': float(mu), 'mu_relative': float(mu_rel),
-                'K': K,
-                'support': json.dumps(support), 'k_actual': m['k_actual'],
-                'S_recall': m['S_recall'], 'S_precision': m['S_precision'],
-                'C_inclusion': m['C_inclusion'],
-                'causal_precision': m['causal_precision'],
-                'correlate_inclusion': m['correlate_inclusion'],
-                'fit_seconds': fit_seconds,
-            })
+    for km in k_multipliers:
+        K = max(1, round(km * k_star))
+        for q_source, q in sources.items():
+            for mu, mu_rel in zip(mu_grid, mu_relative_grid):
+                support, fit_seconds = fit_and_score(FasterRisk, X, y, K, mu, q)
+                m = support_recovery_metrics(support, S_set, C_set,
+                                             causes=causes, correlates=correlates)
+                rows.append({**base_id,
+                    'q_source': q_source,
+                    'mu': float(mu), 'mu_relative': float(mu_rel),
+                    'K': K, 'K_multiplier': float(km),
+                    'support': json.dumps(support), 'k_actual': m['k_actual'],
+                    'S_recall': m['S_recall'], 'S_precision': m['S_precision'],
+                    'C_inclusion': m['C_inclusion'],
+                    'causal_precision': m['causal_precision'],
+                    'correlate_inclusion': m['correlate_inclusion'],
+                    'fit_seconds': fit_seconds,
+                })
 
     with out_path.open('w', newline='') as f:
         w = csv.DictWriter(f, fieldnames=CSV_FIELDS)
@@ -168,12 +170,12 @@ def process_cell(cell_path: Path, out_path: Path, n_mu_log: int) -> str:
 
 
 def _process_one_safe(cell_path: Path, out_dir: Path, force: bool,
-                      n_mu_log: int) -> str:
+                      n_mu_log: int, k_multipliers=(K_MULTIPLIER,)) -> str:
     out_path = out_dir / (cell_path.stem + '.csv')
     if out_path.exists() and not force:
         return f'{cell_path.name}: skip (exists)'
     t = time.time()
-    summary = process_cell(cell_path, out_path, n_mu_log)
+    summary = process_cell(cell_path, out_path, n_mu_log, k_multipliers)
     return f'{summary} in {time.time()-t:.1f}s'
 
 
@@ -190,19 +192,26 @@ def main() -> None:
     parser.add_argument('--n-mu-log', type=int, default=N_MU_LOG,
                         help=f'log-spaced mu grid points (default: {N_MU_LOG}); '
                              f'fewer = faster local iteration')
+    parser.add_argument('--k-multipliers', type=str, default=str(K_MULTIPLIER),
+                        help='comma-separated K/k_star budget multipliers to sweep '
+                             '(e.g. "1.0,1.5,2.0,3.0" for the K-budget ablation)')
+    parser.add_argument('--cell-glob', type=str, default='*.npz',
+                        help='restrict to cells matching this glob (e.g. the anchor '
+                             'cell across seeds for the K-budget ablation)')
     args = parser.parse_args()
+    k_multipliers = tuple(float(x) for x in args.k_multipliers.split(','))
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
-    cell_paths = sorted(args.cache_dir.glob('*.npz'))
+    cell_paths = sorted(args.cache_dir.glob(args.cell_glob))
     if not cell_paths:
-        parser.error(f'no .npz cells in {args.cache_dir}')
+        parser.error(f'no cells matching {args.cell_glob!r} in {args.cache_dir}')
     print(f'cache={args.cache_dir}, {len(cell_paths)} cells, '
           f'n_jobs={args.n_jobs}, out={args.out_dir}', flush=True)
 
     # return_as='generator' streams completed results so we get per-cell progress;
     # default tuple-return buffers everything until the whole sweep finishes
     for m in Parallel(n_jobs=args.n_jobs, return_as='generator')(
-        delayed(_process_one_safe)(p, args.out_dir, args.force, args.n_mu_log)
+        delayed(_process_one_safe)(p, args.out_dir, args.force, args.n_mu_log, k_multipliers)
         for p in cell_paths
     ):
         print(f'  {m}', flush=True)

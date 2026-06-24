@@ -44,7 +44,10 @@ def cell_rows(path, levels, n_mu, n_splits, soft_hi, soft_lo, start_source):
     confounded = sorted(int(j) for j in cell['confounded'])
     part = causal_partition(seed, p, float(cell['p_edge']), k_star)
     causes, correlates = part['all_causes'], part['correlates']
-    mu_grid = np.concatenate([[0.0], np.logspace(-2, 1, n_mu)]) * mu_scale
+    # fixed mu_rel=1 (recovery is not a predictive quantity on balanced synthetic
+    # data, so a CV-picked mu is arbitrary for it). a single-value grid makes
+    # cv_pick_mu evaluate held-out AUC at the fixed mu without selecting it.
+    mu_grid = np.array([1.0]) * mu_scale
     K = 2 * k_star
 
     # start q: an operational discovered prior (ges) degrades monotonically; the

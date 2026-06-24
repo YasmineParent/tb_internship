@@ -77,12 +77,12 @@ def main():
         q_bin = q_orig[parent]
         Xtr, Xte = apply_binarizer(X_orig[tr], spec), apply_binarizer(X_orig[te], spec)
         ytr, yte = y[tr], y[te]
-        mu_scale, mu_grid = make_mu_grid(Xtr, ytr, 3 if args.smoke else 12)
+        mu_scale, mu_grid = make_mu_grid(Xtr, ytr, 3 if args.smoke else 16, hi=2.0)
         with warnings.catch_warnings():
             warnings.simplefilter('ignore')
             van = fit_eval(FasterRisk, Xtr, ytr, Xte, yte, 0.0, None, args.k)
             cv = cv_pick_mu(Xtr, ytr, K=args.k, mu_grid=mu_grid, q=q_bin,
-                            n_splits=args.n_cv, criterion='log_loss',
+                            n_splits=args.n_cv, criterion='auc',
                             rng=np.random.default_rng(args.seed + s))
             cau = fit_eval(FasterRisk, Xtr, ytr, Xte, yte, cv.mu_star, q_bin, args.k)
         mu_hat_rel = cv.mu_star / mu_scale if mu_scale else 0.0

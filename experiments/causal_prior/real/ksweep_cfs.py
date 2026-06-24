@@ -107,7 +107,7 @@ def main():
         spec, _, parent = fit_binarizer(Xtr_o, names.tolist(), args.n_thresholds)
         Xtr, Xte = apply_binarizer(Xtr_o, spec), apply_binarizer(Xte_o, spec)
         allc = np.arange(Xtr.shape[1])
-        mu_scale, mu_grid = make_mu_grid(Xtr, ytr, args.n_mu)
+        mu_scale, mu_grid = make_mu_grid(Xtr, ytr, args.n_mu, hi=2.0)
 
         def auc(fr, cols):
             return float(roc_auc_score(yte, np.clip(fr.predict_proba(Xte[:, cols]), 1e-7, 1 - 1e-7)))
@@ -121,7 +121,7 @@ def main():
                     continue
                 qb = qv[parent]
                 mu = cv_pick_mu(Xtr, ytr, K=k_ref, mu_grid=mu_grid, q=qb, n_splits=args.n_cv,
-                                criterion='log_loss',
+                                criterion='auc',
                                 rng=np.random.default_rng((args.seed, r, tag))).mu_star
                 soft[arm] = (qb, float(mu))
 
