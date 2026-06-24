@@ -25,7 +25,7 @@ BINS = [-0.01, 0.001, 0.1, 0.2, 0.3, 1.01]
 BINLAB = ['0', '(0,.1]', '(.1,.2]', '(.2,.3]', '>.3']
 OP_MU = {'vanilla': 0.0}   # vanilla operates at mu=0; all others at the strong prior
 TOP_MU = 2.0
-SRC_ORDER = ['oracle', 'ges', 'iamb', 'gs', 'pc', 'vanilla', 'bootstrap_l1', 'adversarial']
+SRC_ORDER = ['ges', 'iamb', 'gs', 'pc', 'vanilla', 'bootstrap_l1', 'adversarial']
 
 
 def load(csv=DEFAULT_CSV):

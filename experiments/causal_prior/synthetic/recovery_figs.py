@@ -6,10 +6,10 @@ recovery as a function of mu directly. three panels:
 
   1. mechanism (anchor cell): S_precision vs mu, all sources. causal rises and
      plateaus; predictive declines below the floor; uniform flat (do-no-harm);
-     adversarial collapses; oracle is the ceiling.
+     adversarial collapses.
   2. across-regime: S_precision vs {n, p, p_edge, k_star} at a single fixed mu_rel
      above the do-no-harm threshold. shows where the prior helps.
-  3. mu-robustness: recovery at the fixed mu vs the per-regime oracle mu
+  3. mu-robustness: recovery at the fixed mu vs the per-regime best-case mu
      (post-hoc argmax over the grid). they nearly coincide, so precise mu tuning
      buys little - the fixed choice is not cherry-picked.
 """
@@ -36,7 +36,6 @@ STYLE = {
     'iamb':         ('IAMB (MB, deployed)',   'C0',  '-'),
     'ges':          ('GES (global causal)',   'C9',  '-'),
     'bootstrap_l1': ('bootstrap-$L_1$ (predictive)', 'C3', '-'),
-    'oracle':       ('oracle (ceiling)',      'k',   '--'),
     'adversarial':  ('adversarial (control)', 'C1',  ':'),
 }
 AXES = [('n', 'p == 30 and k_star == 5 and p_edge == 0.2'),
@@ -92,24 +91,24 @@ def panel_regime(df, axes_row):
 
 
 def panel_robustness(df, ax):
-    """fixed-mu vs per-regime oracle-mu recovery across p_edge, for the deployed source."""
+    """fixed-mu vs per-regime best-case-mu recovery across p_edge, for the deployed source."""
     mu = _nearest_mu(df, FIXED_MU)
     d = df.query(AXES[2][1])  # p_edge slice
     for src, marker in [('iamb', 'o'), ('ges', '^')]:
         label, color, _ = STYLE[src]
         s = d[d.q_source == src]
-        # per p_edge: mean S_precision per mu (over seeds), oracle = max over mu, fixed = at mu
+        # per p_edge: mean S_precision per mu (over seeds); best = max over the mu grid, fixed = at mu
         per_mu = s.groupby(['p_edge', 'mu_relative'])['S_precision'].mean().reset_index()
-        oracle = per_mu.groupby('p_edge')['S_precision'].max()
+        best = per_mu.groupby('p_edge')['S_precision'].max()
         fixed = (per_mu[np.isclose(per_mu['mu_relative'], mu)]
                  .set_index('p_edge')['S_precision'])
-        ax.plot(oracle.index, oracle.values, marker=marker, ms=4, color=color, ls='--',
-                alpha=0.6, label=f'{label} — oracle $\\mu$')
+        ax.plot(best.index, best.values, marker=marker, ms=4, color=color, ls='--',
+                alpha=0.6, label=f'{label} — best-case $\\mu$')
         ax.plot(fixed.index, fixed.values, marker=marker, ms=4, color=color, ls='-',
                 label=f'{label} — fixed $\\mu$={mu:g}')
     ax.set_xlabel('p_edge (confounding density)')
     ax.set_ylabel('support recovery (S_precision)')
-    ax.set_title('(3) fixed $\\mu$ $\\approx$ oracle $\\mu$: tuning buys little', fontsize=10)
+    ax.set_title('(3) fixed $\\mu$ $\\approx$ best-case $\\mu$: tuning buys little', fontsize=10)
     ax.legend(fontsize=7, framealpha=0.85)
 
 
