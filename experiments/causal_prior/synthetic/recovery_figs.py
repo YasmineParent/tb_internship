@@ -26,6 +26,7 @@ sys.path.insert(0, str(ROOT))
 from src.causal_prior.loading import load_recovery_csvs   # noqa: E402
 
 GRID_DIR = ROOT / 'results/causal_prior/synthetic/recovery_p30_headline'
+K_DIR = ROOT / 'results/causal_prior/synthetic/recovery_p30_K_ablation'
 OUT = ROOT / 'results/causal_prior/synthetic/recovery_figs'
 
 FIXED_MU = 1.0   # operating mu_rel, above the do-no-harm threshold, in the flat band
@@ -112,6 +113,24 @@ def panel_robustness(df, ax):
     ax.legend(fontsize=7, framealpha=0.85)
 
 
+def panel_kbudget(df_k, ax):
+    """S_precision vs K/k* budget at fixed mu, per source. shows the prior's gain
+    over the vanilla floor is roughly flat across budgets (absolute recovery falls
+    with K as more slots admit non-causal features, but the gain is budget-robust)."""
+    mu = _nearest_mu(df_k, FIXED_MU)
+    at = df_k[np.isclose(df_k['mu_relative'], mu)]
+    for src in ['iamb', 'ges', 'bootstrap_l1', 'uniform']:
+        label, color, ls = STYLE[src]
+        g = at[at.q_source == src].groupby('K_multiplier')['S_precision'].mean()
+        ax.plot(g.index, g.values, marker='o', ms=4, color=color,
+                ls='--' if src == 'uniform' else '-',
+                label='vanilla floor' if src == 'uniform' else label)
+    ax.set_xlabel('sparsity budget  $K/k^\\star$')
+    ax.set_ylabel(f'S_precision @ $\\mu_{{\\mathrm{{rel}}}}$={mu:g}')
+    ax.set_title('budget robustness: prior gain is flat across $K\\geq k^\\star$', fontsize=10)
+    ax.legend(fontsize=7, framealpha=0.85)
+
+
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
     df = load_recovery_csvs(GRID_DIR)
@@ -131,6 +150,16 @@ def main():
                   fontsize=12)
     fig2.tight_layout()
     fig2.savefig(OUT / 'recovery_vs_regime.png', dpi=130, bbox_inches='tight')
+
+    # K-budget ablation (separate sweep, if present)
+    if K_DIR.exists() and any(K_DIR.glob('seed*.csv')):
+        df_k = load_recovery_csvs(K_DIR)
+        df_k = df_k[df_k['noise_scale'] == 1.0]
+        figk, axk = plt.subplots(figsize=(6, 4.5))
+        panel_kbudget(df_k, axk)
+        figk.tight_layout()
+        figk.savefig(OUT / 'recovery_vs_K.png', dpi=130, bbox_inches='tight')
+        print(f'K-budget values: {sorted(df_k["K_multiplier"].unique())}')
 
     print('sources:', sorted(df['q_source'].unique()))
     print(f'fixed mu_rel = {_nearest_mu(df, FIXED_MU)}')

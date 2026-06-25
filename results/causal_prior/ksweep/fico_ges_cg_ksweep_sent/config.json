@@ -1,0 +1,27 @@
+{
+  "dataset": "fico",
+  "qsrc": "ges_cg",
+  "k_grid": [
+    2,
+    4,
+    6,
+    8,
+    10
+  ],
+  "splits": 10,
+  "test_size": 0.3,
+  "discovery_frac": 0.3,
+  "n_cv": 5,
+  "n_mu": 12,
+  "b": 100,
+  "n_thresholds": 4,
+  "n_jobs": -1,
+  "sentinel_nan": true,
+  "seed": 0,
+  "smoke": false,
+  "n": 10459,
+  "p_orig": 46,
+  "discovery_n": 3138,
+  "eval_pool_n": 7321,
+  "leakage_free": true
+}

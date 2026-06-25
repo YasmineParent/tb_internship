@@ -1,0 +1,16 @@
+{
+  "dataset": "fico",
+  "qsrc": "ges_cg",
+  "arms": "all",
+  "n_cap": 4000,
+  "reps": 12,
+  "b": 40,
+  "alpha": 0.05,
+  "n_thresholds": 4,
+  "n_mu": 8,
+  "n_cv": 5,
+  "test_frac": 0.3,
+  "sentinel_nan": true,
+  "seed": 0,
+  "smoke": false
+}

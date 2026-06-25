@@ -14,8 +14,8 @@
   "sentinel_nan": false,
   "smoke": false,
   "seed": 0,
-  "mu_hat_rel": 10.0,
-  "auc_floor": 0.915625,
+  "mu_hat_rel": 1.5199110829529332,
+  "auc_floor": 0.93625,
   "discovery_n": 81,
   "test_n": 57,
   "leakage_free": true
