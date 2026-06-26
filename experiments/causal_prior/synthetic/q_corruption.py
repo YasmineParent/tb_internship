@@ -21,7 +21,6 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
 from joblib import Parallel, delayed
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -125,23 +124,7 @@ def main():
         auc=('auc_star', 'mean'), auc_sem=('auc_star', 'sem'),
         mu_rel=('mu_star_rel', 'median')).reset_index()
     g.to_csv(out / 'summary.csv', index=False)
-
-    # vanilla floor (uniform q == no prior) for reference
-    fig, ax1 = plt.subplots(figsize=(7, 5))
-    ax1.errorbar(g['corruption'], g['S_precision'], yerr=g['S_prec_sem'],
-                 marker='o', color='C0', label='S_precision (recovery)')
-    ax1.set_xlabel('q corruption (0 = discovered prior, 1 = noise)')
-    ax1.set_ylabel('S_precision', color='C0')
-    ax1.set_ylim(0, 1)
-    ax2 = ax1.twinx()
-    ax2.errorbar(g['corruption'], g['auc'], yerr=g['auc_sem'],
-                 marker='s', color='C3', label='held-out AUC')
-    ax2.set_ylabel('AUC', color='C3')
-    ax2.set_ylim(0.5, 1.0)
-    ax1.set_title('Graceful degradation: recovery slides to the floor, AUC stays flat')
-    ax1.grid(True, alpha=0.3)
-    fig.tight_layout()
-    fig.savefig(out / 'q_corruption.png', dpi=130, bbox_inches='tight')
+    # figure: python -m src.causal_prior.figures q_corruption
 
     print('\ncorruption summary:', flush=True)
     print(g.round(3).to_string(index=False), flush=True)
