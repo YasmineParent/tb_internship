@@ -1,0 +1,91 @@
+{
+  "dataset": "diabetes130",
+  "seed": 0,
+  "vanilla": {
+    "rows": [
+      {
+        "feature": "metformin=Up",
+        "points": -4,
+        "q": 0.03
+      },
+      {
+        "feature": "payer_code=DM",
+        "points": -3,
+        "q": 0.0
+      },
+      {
+        "feature": "age=[30-40)",
+        "points": 1,
+        "q": 0.0
+      },
+      {
+        "feature": "discharge_disposition_id_le_1",
+        "points": -1,
+        "q": 0.09
+      },
+      {
+        "feature": "payer_code=HM",
+        "points": -1,
+        "q": 0.0
+      },
+      {
+        "feature": "number_emergency_le_0",
+        "points": -1,
+        "q": 0.19
+      },
+      {
+        "feature": "number_inpatient_le_0",
+        "points": -1,
+        "q": 0.86
+      },
+      {
+        "feature": "number_inpatient_le_1",
+        "points": -1,
+        "q": 0.86
+      }
+    ],
+    "intercept": -2.0,
+    "auc": 0.6264457325268817
+  },
+  "causal": {
+    "rows": [
+      {
+        "feature": "discharge_disposition_id_le_1",
+        "points": -4,
+        "q": 0.09
+      },
+      {
+        "feature": "number_inpatient_le_1",
+        "points": -3,
+        "q": 0.86
+      },
+      {
+        "feature": "discharge_disposition_id_le_2",
+        "points": 2,
+        "q": 0.09
+      },
+      {
+        "feature": "number_emergency_le_0",
+        "points": -2,
+        "q": 0.19
+      },
+      {
+        "feature": "number_inpatient_le_0",
+        "points": -1,
+        "q": 0.86
+      },
+      {
+        "feature": "metformin=No",
+        "points": 1,
+        "q": 0.05
+      },
+      {
+        "feature": "insulin=No",
+        "points": -1,
+        "q": 0.01
+      }
+    ],
+    "intercept": -4.0,
+    "auc": 0.6419382840501792
+  }
+}
