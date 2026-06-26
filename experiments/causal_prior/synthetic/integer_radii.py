@@ -56,7 +56,8 @@ def parse_args():
     p.add_argument('--p-edge', type=float, default=0.5, help='DAG edge probability')
     p.add_argument('--C', type=int, default=5, help='integer coefficient bound (matches FR lb/ub)')
     p.add_argument('--C0', type=int, default=8, help='integer intercept bound')
-    p.add_argument('--seed', type=int, default=0)
+    p.add_argument('--seed', type=int, default=0, help='first seed')
+    p.add_argument('--n-seeds', type=int, default=5, help='cells to pool for the flip curve')
     p.add_argument('--b-disc', type=int, default=50, help='GES stability subsamples')
     p.add_argument('--mu-rel', type=str, default='0.5,2.0',
                    help='comma-separated mu_rel values for the prior conditions')
@@ -65,7 +66,7 @@ def parse_args():
     args = p.parse_args()
     if args.smoke:
         args.p, args.n, args.k_star, args.C, args.C0 = 10, 100, 2, 3, 5
-        args.b_disc = 10
+        args.b_disc, args.n_seeds = 10, 1
     args.k = args.k_star                     # K = k*, so the exact MAP can equal S*
     args.mu_rel = tuple(float(x) for x in args.mu_rel.split(','))
     return args
@@ -155,6 +156,40 @@ def thm1_radius(losses, q, mu, S_map):
     return eps_star, holds, tight
 
 
+EPS_REL_GRID = np.round(np.r_[np.linspace(0.5, 2.0, 31), 0.99, 1.01], 3)
+
+
+def flip_curve(losses, q, mu, S_map, eps_rel_grid=EPS_REL_GRID):
+    """worst-case q-perturbation sweep: does the integer MAP flip at eps = r*eps_star?
+    perturbs q by +/-eps along the binding competitor's symmetric difference (clipped to
+    [0,1]). returns (eps_rel, flipped) per grid point; empty for the vanilla mu=0 case."""
+    if mu <= 0:
+        return []
+    F_map = losses[S_map] - mu * float(q[list(S_map)].sum())
+    eps_star, binding = np.inf, None
+    for S, ell in losses.items():
+        if S == S_map:
+            continue
+        r = ((ell - mu * float(q[list(S)].sum())) - F_map) / (mu * len(S ^ S_map))
+        if r < eps_star:
+            eps_star, binding = r, S
+    if binding is None or not np.isfinite(eps_star):
+        return []
+
+    def map_at(qp):
+        return min(losses, key=lambda S: losses[S] - mu * float(qp[list(S)].sum()))
+
+    def adversary(eps):
+        qp = q.copy()
+        for j in binding - S_map:
+            qp[j] = min(1.0, qp[j] + eps)
+        for j in S_map - binding:
+            qp[j] = max(0.0, qp[j] - eps)
+        return qp
+
+    return [(float(r), int(map_at(adversary(r * eps_star)) != S_map)) for r in eps_rel_grid]
+
+
 def fit_fr(X, y_signed, k, mu, q, parent_size):
     with warnings.catch_warnings():
         warnings.simplefilter('ignore')
@@ -166,10 +201,10 @@ def fit_fr(X, y_signed, k, mu, q, parent_size):
     return pool[0], pool
 
 
-def main():
-    args = parse_args()
+def run_seed(seed, args):
+    """one cell: integer-radii rows (per condition) and flip-sweep rows (per eps)."""
     d = LinGaussSyntheticData(p=args.p, n_samples=args.n, k_star=args.k_star,
-                              p_edge=args.p_edge, seed=args.seed)
+                              p_edge=args.p_edge, seed=seed)
     X, y_signed = d.X, d.y
     S_star = frozenset(int(j) for j in d.S_star)
     mu_scale = float(np.median(0.5 * np.abs(X.T @ y_signed)))
@@ -177,11 +212,7 @@ def main():
     with warnings.catch_warnings():
         warnings.simplefilter('ignore')
         q_ge, _ = ges_stability_q(X, d.y_continuous, B=args.b_disc,
-                                  rng=np.random.default_rng(args.seed))
-
-    print(f'integer_radii: p={args.p} n={args.n} k*={args.k_star} K={args.k} '
-          f'C={args.C} C0={args.C0} seed={args.seed}', flush=True)
-    print(f'enumerating exact integer ell on {sum(1 for r in range(1, args.k+1) for _ in combinations(range(args.p), r))} supports...', flush=True)
+                                  rng=np.random.default_rng(seed))
     losses = all_restricted_losses(X, y_signed, args.k, args.C, args.C0)
 
     conditions = [('vanilla', q_or, 0.0)]
@@ -189,16 +220,17 @@ def main():
         conditions += [(f'oracle@{mr}', q_or, mr * mu_scale),
                        (f'ges@{mr}', q_ge, mr * mu_scale)]
 
-    rows = []
+    rows, flips = [], []
     for name, q, mu in conditions:
         S_map = map_support(losses, q, mu, args.p)
         qv = None if name == 'vanilla' else q
         S_beam, pool = fit_fr(X, y_signed, args.k, mu, qv, args.parent_size)
         mu0, S_loss = mu0_threshold(losses, q)
         eps_star, radius_holds, radius_tight = thm1_radius(losses, q, mu, S_map)
+        mu_rel = round(mu / mu_scale if mu_scale else 0.0, 4)
         inter = len(S_map & S_beam)
         rows.append({
-            'name': name, 'mu_rel': round(mu / mu_scale if mu_scale else 0.0, 4),
+            'seed': seed, 'name': name, 'mu_rel': mu_rel,
             'k_map': len(S_map), 'k_beam': len(S_beam),
             'exact_is_Sstar': int(S_map == S_star),
             # theory check on the integer objective (no FasterRisk):
@@ -211,18 +243,40 @@ def main():
             'jaccard': round(inter / len(S_map | S_beam), 3) if (S_map | S_beam) else 1.0,
             'S_map': json.dumps(sorted(S_map)), 'S_beam': json.dumps(sorted(S_beam)),
         })
+        for eps_rel, flipped in flip_curve(losses, q, mu, S_map):
+            flips.append({'seed': seed, 'name': name, 'mu_rel': mu_rel,
+                          'eps_rel': eps_rel, 'flipped': flipped})
+    return rows, flips
+
+
+def main():
+    args = parse_args()
+    last = args.seed + args.n_seeds - 1
+    print(f'integer_radii: p={args.p} n={args.n} k*={args.k_star} K={args.k} '
+          f'C={args.C} C0={args.C0} seeds={args.seed}..{last}', flush=True)
+
+    rows, flips = [], []
+    for seed in range(args.seed, args.seed + args.n_seeds):
+        r, f = run_seed(seed, args)
+        rows += r
+        flips += f
+        print(f'  seed {seed} done', flush=True)
 
     df = pd.DataFrame(rows)
-    out = new_run_dir(OUT_DIR / (f'int_p{args.p}_k{args.k_star}_C{args.C}_seed{args.seed}'
-                                 + ('_smoke' if args.smoke else '')), vars(args))
+    flip_df = pd.DataFrame(flips)
+    suffix = (f'int_p{args.p}_k{args.k_star}_C{args.C}_seeds{args.seed}-{last}'
+              + ('_smoke' if args.smoke else ''))
+    out = new_run_dir(OUT_DIR / suffix, vars(args))
     df.to_csv(out / 'integer_radii.csv', index=False)
-    print('\n[theory] radii on the exact integer MAP (no FasterRisk):', flush=True)
-    print(df[['name', 'mu_rel', 'exact_is_Sstar', 'eps_star_rel', 'radius_holds',
-              'radius_tight', 'mu0_rel']].to_string(index=False), flush=True)
-    print('\n[beam gap] FasterRisk vs the exact integer MAP:', flush=True)
-    show = df[['name', 'mu_rel', 'beam_match', 'map_in_pool', 'beam_recovers_Sstar', 'jaccard']]
-    print(show.to_string(index=False), flush=True)
-    print(f'\nS* = {sorted(S_star)} ; loss-optimal support S_loss = {sorted(min(losses, key=losses.get))}', flush=True)
+    flip_df.to_csv(out / 'flip_sweep.csv', index=False)
+
+    print('\n[theory] radii on the exact integer MAP (mean over seeds):', flush=True)
+    print(df.groupby('name')[['exact_is_Sstar', 'radius_holds', 'radius_tight']]
+          .mean().to_string(), flush=True)
+    near = flip_df.groupby('eps_rel')['flipped'].mean()
+    print('\n[flip curve] fraction flipped just below / above eps_star:', flush=True)
+    print(f'  eps/eps* = 0.99 -> {near.get(0.99, float("nan")):.2f}   '
+          f'1.01 -> {near.get(1.01, float("nan")):.2f}', flush=True)
     print(f'Done. Results in {out}/', flush=True)
 
 
