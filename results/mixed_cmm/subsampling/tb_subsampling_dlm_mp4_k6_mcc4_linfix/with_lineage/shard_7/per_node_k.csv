@@ -1,0 +1,12 @@
+feature,n_runs_present,k1_count,k5_count,k6_count,mean_k,median_k,mode_k
+dlm_mic,10,0,6,4,5.4,5.0,5
+rv0678_G*128C,10,10,0,0,1.0,1.0,1
+mmpl5_Asp767Asn,10,10,0,0,1.0,1.0,1
+mmpl5_Ile948Val,10,10,0,0,1.0,1.0,1
+mmpl5_Thr794Ile,10,10,0,0,1.0,1.0,1
+pepq_Ala87Gly,10,10,0,0,1.0,1.0,1
+rv1979c_C*135G,9,9,0,0,1.0,1.0,1
+fgd1_G*357C,10,10,0,0,1.0,1.0,1
+fgd1_Phe320Phe,10,10,0,0,1.0,1.0,1
+lineage_2,10,10,0,0,1.0,1.0,1
+lineage_4,10,10,0,0,1.0,1.0,1

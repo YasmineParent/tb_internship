@@ -51,8 +51,74 @@ def parse_args():
                         help='add binary type_beyond_MDR (preXDR/XDR vs MDR) as exogenous covariate')
     parser.add_argument('--forbid_type_to_mic', action='store_true',
                         help='forbid type->MIC edges (default: allow, lets type absorb its direct effect on MIC)')
+    parser.add_argument('--lineage_exogenous', action='store_true',
+                        help='legacy orientation: treat lineage as an exogenous common cause (forbid '
+                             'every edge into it). default is the corrected biology where lineage is '
+                             'determined by mutations (mutation->lineage allowed, lineage->mutation forbidden)')
+    parser.add_argument('--out_dir', type=str, default=None,
+                        help='explicit output directory (overrides the auto-named results path)')
     parser.add_argument('--seed', type=int, default=0)
     return parser.parse_args()
+
+
+def build_forbidden(mic_idx, mut_idx, lin_idx, type_idx, *, include_lineage, include_type,
+                    forbid_lineage_to_mic, forbid_type_to_mic, lineage_exogenous):
+    """forbidden-edge mask encoding the causal assumptions for the (single- or multi-drug) graph.
+
+    mic_idx is one index or an iterable of them. every mic is a sink among the modelled variables:
+    mutations/lineage/type cause mic, never the reverse, and mic<->mic is forbidden in both
+    directions so two drug mics can only correlate through a shared mutation parent (this is how
+    cross-resistance reads out). lineage orientation is switchable:
+      - default (corrected biology, bio team): lineage is determined by mutations, so allow
+        mutation->lineage and lineage->mic, but forbid lineage->mutation, lineage<->type,
+        mic->lineage and lineage->lineage.
+      - lineage_exogenous=True (legacy): lineage is an exogenous common cause; forbid every edge
+        into it. kept only to reproduce the earlier ablation runs.
+    """
+    mics = [mic_idx] if isinstance(mic_idx, int) else list(mic_idx)
+    forbidden = set()
+    for m in mics:
+        for j in mut_idx:
+            forbidden.add((m, j))  # mutations cause mic, never the reverse
+    for a in mics:
+        for b in mics:
+            if a != b:
+                forbidden.add((a, b))  # mics do not cause each other (cross-resistance via shared parents)
+
+    if include_lineage:
+        if lineage_exogenous:
+            for source in mics + mut_idx + lin_idx + type_idx:
+                for target in lin_idx:
+                    if source != target:
+                        forbidden.add((source, target))
+        else:
+            # lineage is downstream of mutations: it cannot be a parent of mutations, of type,
+            # or of another lineage dummy
+            for source in lin_idx:
+                for target in mut_idx + type_idx + lin_idx:
+                    if source != target:
+                        forbidden.add((source, target))
+            # nothing downstream sets lineage: mic and type cannot point into it
+            # (mutation->lineage stays allowed)
+            for source in mics + type_idx:
+                for target in lin_idx:
+                    forbidden.add((source, target))
+        if forbid_lineage_to_mic:
+            for source in lin_idx:
+                for m in mics:
+                    forbidden.add((source, m))
+
+    if include_type:
+        # type is a clinical classification set before/independently of mic: forbid edges into it
+        for source in mics + mut_idx + lin_idx + type_idx:
+            for target in type_idx:
+                if source != target:
+                    forbidden.add((source, target))
+        if forbid_type_to_mic:
+            for source in type_idx:
+                for m in mics:
+                    forbidden.add((source, m))
+    return forbidden
 
 
 def main():
@@ -93,28 +159,12 @@ def main():
     type_idx = list(range(1 + len(keep) + len(lin_cols),
                           1 + len(keep) + len(lin_cols) + len(type_cols)))
 
-    forbidden = set()
-    # MIC -> mutation: mutations cause MIC, never the reverse
-    for j in mut_idx:
-        forbidden.add((mic_idx, j))
-    if args.include_lineage:
-        # lineage is exogenous: forbid edges INTO lineage from anything (incl. other lineage dummies)
-        for source in [mic_idx] + mut_idx + lin_idx + type_idx:
-            for target in lin_idx:
-                if source != target:
-                    forbidden.add((source, target))
-        if args.forbid_lineage_to_mic:
-            for source in lin_idx:
-                forbidden.add((source, mic_idx))
-    if args.include_type:
-        # type is a clinical classification set before/independently of MIC: forbid edges INTO it
-        for source in [mic_idx] + mut_idx + lin_idx + type_idx:
-            for target in type_idx:
-                if source != target:
-                    forbidden.add((source, target))
-        if args.forbid_type_to_mic:
-            for source in type_idx:
-                forbidden.add((source, mic_idx))
+    forbidden = build_forbidden(
+        mic_idx, mut_idx, lin_idx, type_idx,
+        include_lineage=args.include_lineage, include_type=args.include_type,
+        forbid_lineage_to_mic=args.forbid_lineage_to_mic,
+        forbid_type_to_mic=args.forbid_type_to_mic,
+        lineage_exogenous=args.lineage_exogenous)
 
     col_threshold = args.min_cluster_count * args.k_max
     print(f"mutations after prevalence filter: {len(keep)}, X shape: {X.shape}", flush=True)
@@ -137,7 +187,10 @@ def main():
             suffix_parts.append('fbt')
     suffix_parts.extend([f'mp{args.max_parents}', f'k{args.k_max}', f'mcc{args.min_cluster_count}'])
     suffix = '_' + '_'.join(suffix_parts)
-    base = REPO_ROOT / 'results' / 'mixed_cmm' / 'subsampling' / f'tb_subsample_dlm{suffix}'
+    if args.out_dir is not None:
+        base = Path(args.out_dir)
+    else:
+        base = REPO_ROOT / 'results' / 'mixed_cmm' / 'subsampling' / f'tb_subsample_dlm{suffix}'
     output_dir = new_run_dir(base, {**vars(args), 'mic_col': MIC_COL, 'features': features})
 
     cmm_list, features_per_run = subsample_cmm(X, forbidden, n_runs=args.n_runs, use_logistic=True,
