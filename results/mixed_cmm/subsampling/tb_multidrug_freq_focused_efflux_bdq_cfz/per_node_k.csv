@@ -1,0 +1,9 @@
+feature,n_runs_present,k1_count,k2_count,k3_count,k4_count,k5_count,mean_k,mode_k,median_k
+cfz_mic,100,0,0.0,14.0,54,32,4.18,4,4.0
+bdq_mic,100,0,1.0,4.0,95,0,3.94,4,4.0
+mmpl5_Thr794Ile,100,98,2.0,0.0,0,0,1.02,1,1.0
+burden_efflux,100,100,0.0,0.0,0,0,1.0,1,1.0
+lineage_2,100,100,0.0,0.0,0,0,1.0,1,1.0
+lineage_4,100,100,0.0,0.0,0,0,1.0,1,1.0
+mmpl5_Asp767Asn,100,100,0.0,0.0,0,0,1.0,1,1.0
+pepq_Ala87Gly,100,100,0.0,0.0,0,0,1.0,1,1.0

@@ -1,0 +1,7 @@
+feature,n_runs_present,k1_count,k3_count,k4_count,k5_count,k6_count,mean_k,mode_k,median_k
+dlm_mic,100,0,0.0,28,37,35,5.07,5,5.0
+ptm_mic,100,0,12.0,44,25,19,4.51,4,4.0
+burden_f420_activation,100,99,1.0,0,0,0,1.02,1,1.0
+fgd1_G*357C,100,100,0.0,0,0,0,1.0,1,1.0
+lineage_2,100,100,0.0,0,0,0,1.0,1,1.0
+lineage_4,100,100,0.0,0,0,0,1.0,1,1.0

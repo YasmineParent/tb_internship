@@ -1,0 +1,12 @@
+source,target,count,n_eligible,frequency
+fgd1_G*357C,lineage_4,99,100,0.99
+fgd1_G*357C,lineage_2,98,100,0.98
+burden_f420_activation,dlm_mic,67,100,0.67
+burden_f420_activation,ptm_mic,45,100,0.45
+fgd1_G*357C,dlm_mic,42,100,0.42
+fgd1_G*357C,ptm_mic,36,100,0.36
+lineage_2,dlm_mic,16,80,0.2
+lineage_2,ptm_mic,19,100,0.19
+lineage_4,dlm_mic,5,40,0.125
+burden_f420_activation,fgd1_G*357C,1,10,0.1
+lineage_4,ptm_mic,6,60,0.1

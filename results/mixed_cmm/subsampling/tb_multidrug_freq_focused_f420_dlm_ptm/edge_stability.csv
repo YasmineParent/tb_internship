@@ -1,0 +1,9 @@
+source,target,count,n_eligible,frequency
+burden_f420_activation,dlm_mic,56,100,0.56
+lineage_2,dlm_mic,48,100,0.48
+burden_f420_activation,ptm_mic,38,100,0.38
+lineage_2,ptm_mic,35,100,0.35
+lineage_4,dlm_mic,14,80,0.175
+lineage_4,ptm_mic,13,80,0.1625
+burden_f420_activation,lineage_2,1,10,0.1
+burden_f420_activation,lineage_4,1,10,0.1
