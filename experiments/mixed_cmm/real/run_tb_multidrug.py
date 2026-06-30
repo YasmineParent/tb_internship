@@ -7,7 +7,7 @@ mics is the cross-resistance driver. lineage uses the corrected orientation (dow
 mutations, can cause mic) from run_tb_subsample_dlm.build_forbidden.
 
 linezolid is excluded by default (3 mic levels, no resistant isolates -> near-constant continuous
-node that destabilises the mixture fit). Run sharded for speed (see run_tb_ablation_dlm.py pattern).
+node that destabilises the mixture fit). Pass --n_shards N to self-shard the run across N cores.
 
 Usage:
     python experiments/mixed_cmm/real/run_tb_multidrug.py
@@ -39,6 +39,9 @@ PATHWAY_DRUGS = {'f420_activation': {'dlm', 'ptm'}, 'efflux': {'bdq', 'cfz'}, 'l
 def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument('--drugs', type=str, default='dlm,ptm,bdq,cfz', help='comma-separated drug prefixes')
+    p.add_argument('--genes', type=str, default=None,
+                   help='comma-separated gene prefixes to restrict mutations to (default: all). '
+                        'use to build a focused graph, e.g. efflux genes with bdq,cfz')
     p.add_argument('--n_runs', type=int, default=100)
     p.add_argument('--subsample_frac', type=float, default=0.8)
     p.add_argument('--max_parents', type=int, default=4)
@@ -55,16 +58,28 @@ def parse_args():
     p.add_argument('--include_type', action='store_true')
     p.add_argument('--lineage_exogenous', action='store_true', help='legacy lineage orientation')
     p.add_argument('--out_dir', type=str, default=None)
+    p.add_argument('--data', type=str, default=str(DATA_PATH),
+                   help='dataset csv (default: binary clean set; pass tb_freq_clean.csv for freq data)')
     p.add_argument('--seed', type=int, default=0)
+    p.add_argument('--n_shards', type=int, default=1,
+                   help='>1 self-shards this run across that many cores (needs --out_dir)')
+    p.add_argument('--_worker', action='store_true', help=argparse.SUPPRESS)
     return p.parse_args()
 
 
 def main():
     args = parse_args()
+    if args.n_shards > 1 and not args._worker:  # orchestrate: shard this run across cores
+        from experiments._io import self_shard
+        self_shard(args.out_dir, args.n_runs, args.n_shards)
+        return
     drugs = [d.strip() for d in args.drugs.split(',')]
     mic_cols = [f'{d}_mic' for d in drugs]
 
-    df, mutation_cols, _, _, _ = load_tb_data(str(DATA_PATH))
+    df, mutation_cols, _, _, _ = load_tb_data(args.data)
+    if args.genes:
+        gset = {g.strip() for g in args.genes.split(',')}
+        mutation_cols = [c for c in mutation_cols if c.split('_', 1)[0] in gset]
     df = df.dropna(subset=mic_cols).reset_index(drop=True)
     print(f"isolates with all of {mic_cols}: {len(df)}", flush=True)
     # mics are 2-fold dilution series; log2 puts dilution steps on a uniform scale

@@ -57,7 +57,12 @@ def parse_args():
                              'determined by mutations (mutation->lineage allowed, lineage->mutation forbidden)')
     parser.add_argument('--out_dir', type=str, default=None,
                         help='explicit output directory (overrides the auto-named results path)')
+    parser.add_argument('--data', type=str, default=str(DATA_PATH),
+                        help='dataset csv (default: binary clean set; pass tb_freq_clean.csv for freq data)')
     parser.add_argument('--seed', type=int, default=0)
+    parser.add_argument('--n_shards', type=int, default=1,
+                        help='>1 self-shards this run across that many cores (needs --out_dir)')
+    parser.add_argument('--_worker', action='store_true', help=argparse.SUPPRESS)
     return parser.parse_args()
 
 
@@ -123,7 +128,11 @@ def build_forbidden(mic_idx, mut_idx, lin_idx, type_idx, *, include_lineage, inc
 
 def main():
     args = parse_args()
-    df, mutation_cols, _, _, _ = load_tb_data(str(DATA_PATH))
+    if args.n_shards > 1 and not args._worker:  # orchestrate: shard this run across cores
+        from experiments._io import self_shard
+        self_shard(args.out_dir, args.n_runs, args.n_shards)
+        return
+    df, mutation_cols, _, _, _ = load_tb_data(args.data)
     n_before = len(df)
     df = df.dropna(subset=[MIC_COL]).reset_index(drop=True)
     print(f"isolates with {MIC_COL}: {len(df)} / {n_before}", flush=True)

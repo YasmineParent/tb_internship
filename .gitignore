@@ -6,6 +6,7 @@ __pycache__/
 .DS_Store
 .claude/
 *.log
+shard_*/   # per-shard intermediates from run_sharded; only the aggregated outputs are kept
 # notes: keep only the public docs, ignore all other working notes
 notes/*
 !notes/pipeline.md
