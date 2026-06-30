@@ -239,7 +239,9 @@ def build_stable_bn(stability: pd.DataFrame | str | Path, threshold: float = 0.5
     continuous_features become RangeVariables; everything else is binary LabelizedVariables."""
     if not isinstance(stability, pd.DataFrame):
         stability = pd.read_csv(stability)
-    stable = stability[stability['frequency'] >= threshold]
+    # add the strongest edges first so that if the thresholded set has a cycle (stability
+    # selection is not itself acyclic), the weaker cycle-closing edge is the one dropped.
+    stable = stability[stability['frequency'] >= threshold].sort_values('frequency', ascending=False)
     nodes = sorted(set(stable['source']) | set(stable['target']))
     continuous = set(continuous_features or [])
     bn = gum.BayesNet()
@@ -249,24 +251,129 @@ def build_stable_bn(stability: pd.DataFrame | str | Path, threshold: float = 0.5
         else:
             bn.add(gum.LabelizedVariable(feature, feature, 2))
     for _, row in stable.iterrows():
-        bn.addArc(row['source'], row['target'])
+        try:
+            bn.addArc(row['source'], row['target'])
+        except gum.InvalidDirectedCycle:
+            pass  # drop the weaker edge that would close a cycle (greedy DAG, highest freq first)
     return bn
 
 
+# node-type fills for the stable-graph renderer (bio-readable: outcome vs mutation vs background)
+_STABLE_BN_COLORS = {'mic': '#e8896b', 'mutation': '#9ec5e0', 'burden': '#f0a35e',
+                     'lineage': '#cfcfcf', 'type': '#ddd0a0'}
+
+
+def _stable_node_class(name: str, continuous: set) -> str:
+    if name in continuous:
+        return 'mic'
+    if name.startswith('burden_'):
+        return 'burden'
+    if name.startswith('lineage'):
+        return 'lineage'
+    if name.startswith('type'):
+        return 'type'
+    return 'mutation'
+
+
 def visualize_stable_bn(stability: pd.DataFrame | str | Path, threshold: float = 0.5,
-                        size: str = "30", continuous_features: list[str] | None = None):
-    """Visualize stable edges as a BN. Rendered to PNG so the output embeds
-    in .ipynb in a format that renders reliably on GitHub (gnb.showBN's SVG
-    output is flaky in GitHub's notebook renderer)."""
-    import pyagrum.lib.image as gimg
+                        size: str = "30", continuous_features: list[str] | None = None,
+                        into_only: bool = False):
+    """Visualize stable edges as a coloured causal diagram. Nodes are filled by type (outcome MIC,
+    mutation, rare-variant burden, lineage, resistance type) and each arc is labelled and widened
+    by its selection frequency. Rendered to PNG so the output embeds reliably in .ipynb. Needs the
+    graphviz `dot` binary on PATH.
+
+    into_only: keep only edges that point into an outcome MIC (continuous_features), dropping the
+    mutation-mutation / mutation-lineage co-occurrence clutter, for a clean drivers -> MIC view."""
+    import os
+    import shutil
+    import pyagrum.lib.bn2graph as b2g
     from IPython.display import display, Image
+    if shutil.which('dot') is None:  # pick up a homebrew graphviz if it is not already on PATH
+        for _p in ('/opt/homebrew/bin', '/usr/local/bin'):
+            if (Path(_p) / 'dot').exists():
+                os.environ['PATH'] = _p + os.pathsep + os.environ.get('PATH', '')
+                break
+    if not isinstance(stability, pd.DataFrame):
+        stability = pd.read_csv(stability)
+    continuous = set(continuous_features or [])
+    if into_only:
+        stability = stability[stability['target'].isin(continuous)]
     bn = build_stable_bn(stability, threshold, continuous_features)
+    name2id = {bn.variable(i).name(): i for i in bn.nodes()}
+    stable = stability[stability['frequency'] >= threshold]
+    arc_label, arc_width = {}, {}
+    for s, t, f in zip(stable['source'], stable['target'], stable['frequency']):
+        a = (name2id.get(s), name2id.get(t))
+        if a[0] is not None and a[1] is not None and bn.dag().existsArc(*a):
+            arc_label[a] = f'{f:.2f}'
+            arc_width[a] = 1 + 4 * f
+    g = b2g.BN2dot(bn, size=size, arcLabel=arc_label, arcWidth=arc_width)
+    for node in g.get_nodes():
+        nm = node.get_name().strip('"')
+        if nm not in name2id:
+            continue
+        node.set_style('filled')
+        node.set_shape('box')
+        node.set_fillcolor(_STABLE_BN_COLORS[_stable_node_class(nm, continuous)])
     with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as f:
         path = f.name
     try:
-        gimg.export(bn, path, size=size)
+        g.write_png(path)
         with open(path, 'rb') as fp:
             data = fp.read()
     finally:
         Path(path).unlink(missing_ok=True)
     display(Image(data=data, format='png'))
+
+
+# notebook helpers for the real-TB stability-selection results: keep notebook cells to one-liners
+SUBS = Path(__file__).resolve().parents[2] / 'results' / 'mixed_cmm' / 'subsampling'
+
+
+def show_graph(rel: str, mics: list[str], threshold: float = 0.3, size: str = '13',
+               into_only: bool = True):
+    """Render the stable causal graph for results subdir `rel` (mics = continuous outcome nodes).
+    into_only (default True) keeps only the drivers -> MIC edges, dropping co-occurrence clutter;
+    pass into_only=False for the complete-structure view."""
+    visualize_stable_bn(pd.read_csv(SUBS / rel / 'edge_stability.csv'),
+                        threshold=threshold, continuous_features=mics, size=size, into_only=into_only)
+
+
+def parents_of(rel: str, mic: str) -> pd.DataFrame:
+    """Selection frequency of each feature as a parent of `mic`, descending."""
+    e = pd.read_csv(SUBS / rel / 'edge_stability.csv')
+    return (e[e['target'] == mic][['source', 'frequency']]
+            .sort_values('frequency', ascending=False).round(2).reset_index(drop=True))
+
+
+def parents_across(rels: dict[str, str], mic: str) -> pd.DataFrame:
+    """Parent frequencies for `mic` across several result dirs ({label: subdir}), one column each,
+    sorted by the last column. Use for the ablation progression and old-vs-corrected tables."""
+    cols = {}
+    for label, rel in rels.items():
+        e = pd.read_csv(SUBS / rel / 'edge_stability.csv')
+        cols[label] = e[e['target'] == mic].set_index('source')['frequency']
+    out = pd.DataFrame(cols).fillna(0)
+    return out.sort_values(out.columns[-1], ascending=False).round(2)
+
+
+def plot_parents_across(rels: dict[str, str], mic: str, threshold: float = 0.5, min_show: float = 0.1):
+    """Grouped-bar comparison of each feature's selection frequency into `mic` across result dirs."""
+    import numpy as np
+    import matplotlib.pyplot as plt
+    df = parents_across(rels, mic)
+    df = df[df.max(axis=1) >= min_show]
+    conds = list(df.columns)
+    x = np.arange(len(df))
+    w = 0.8 / max(len(conds), 1)
+    _, ax = plt.subplots(figsize=(max(7, 0.9 * len(df)), 4))
+    for i, c in enumerate(conds):
+        ax.bar(x + i * w, df[c].to_numpy(), w, label=c)
+    ax.axhline(threshold, ls='--', color='grey', lw=0.8, label=f'threshold {threshold}')
+    ax.set_xticks(x + (len(conds) - 1) / 2 * w)
+    ax.set_xticklabels(df.index, rotation=45, ha='right')
+    ax.set_ylabel(f'selection frequency into {mic}')
+    ax.legend(fontsize=8)
+    plt.tight_layout()
+    plt.show()
