@@ -93,11 +93,18 @@ the difference from a plain correlation, which cannot tell the two apart.
   positives, and its frequency is computed only over the subsamples where it was
   eligible.
 
-- **Pooled burdens.** Most variants are individually too rare to fit (170 of 193
-  mutations appear in fewer than 5 strains). Within a predefined gene group, the
-  rare variants are collapsed into a single 0/1 column (the "burden": 1 if the
-  strain carries any of them). This trades "which exact variant" for "is this
-  group hit at all", which is the level of detail the data can support.
+- **Pooled burdens.** Most variants show up in very few strains (< 5% each), too
+  rare to fit on their own. So within each predefined gene group, the rare
+  non-synonymous variants are collapsed into a single binary column (the burden):
+  it is 1 for a strain that carries any such variant in that group's genes, and 0
+  otherwise. Common variants are kept as their own nodes; synonymous variants are
+  dropped. This swaps "which exact variant" for "is this group hit at all", which
+  is the level of detail the data can actually support when each variant alone is
+  too sparse to model.
+  - `burden_f420_activation` pools rare variants across `ddn`, `fgd1`, `fbiA`,
+    `fbiB`, `fbiC`, `fbiD`.
+  - `burden_efflux` pools rare variants across `rv0678`, `mmpL5`, `mmpS5`,
+    `pepQ`, `rv1979c`.
 
 - **Progressive adjustment.** The analysis is redone under five conditions, adding
   lineage and then resistance type, and blocking certain direct arrows into the
