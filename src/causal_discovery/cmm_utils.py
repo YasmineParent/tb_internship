@@ -377,3 +377,53 @@ def plot_parents_across(rels: dict[str, str], mic: str, threshold: float = 0.5, 
     ax.legend(fontsize=8)
     plt.tight_layout()
     plt.show()
+
+
+def plot_parents_panels(rels: dict[str, str], mic: str, top: int = 7, threshold: float = 0.5,
+                        min_show: float = 0.1, ncols: int | None = None):
+    """Small-multiple `features -> mic` graphs, one panel per condition in `rels` (dict order kept).
+    Every panel shows the same feature set (union of the `top` strongest) so edge widths, which are
+    proportional to selection frequency, read as an evolution across the progressive-adjustment
+    conditions. Dark blue = at or above `threshold`, light blue = seen (>= min_show), grey = near 0."""
+    import numpy as np
+    import matplotlib.pyplot as plt
+    from matplotlib.patches import FancyArrowPatch
+    df = parents_across(rels, mic)
+    df = df[df.max(axis=1) >= min_show]
+    df = df.reindex(df.max(axis=1).sort_values(ascending=False).index).head(top)
+    feats, conds = list(df.index), list(df.columns)
+    rows = len(feats)
+    ypos = {f: rows - 1 - i for i, f in enumerate(feats)}
+    ymid = (rows - 1) / 2
+    n = len(conds); ncols = ncols or n; nrows = int(np.ceil(n / ncols))
+    fig, axes = plt.subplots(nrows, ncols, figsize=(3.3 * ncols, 0.62 * rows * nrows + 1.1),
+                             sharey=True)
+    axes = np.atleast_1d(axes).ravel()
+    arr_x0, mic_x = 1.6, 3.05
+    for ax, cond in zip(axes, conds):
+        ax.set_title(cond, fontsize=10, fontweight='bold')
+        ax.scatter([mic_x], [ymid], s=620, color='#f4a3a3', edgecolors='black',
+                   linewidths=0.6, zorder=3)
+        ax.text(mic_x, ymid, mic.replace('_mic', ''), ha='center', va='center', fontsize=7.5, zorder=4)
+        for f in feats:
+            fr = float(df.loc[f, cond])
+            if fr >= threshold:
+                col, alpha, tcol = '#2C5F9E', 1.0, 'black'
+            elif fr >= min_show:
+                col, alpha, tcol = '#7FA6D6', 0.95, 'black'
+            else:
+                col, alpha, tcol = '#c9c9c9', 0.5, '#9a9a9a'
+            ax.text(1.5, ypos[f], f, ha='right', va='center', fontsize=7, color=tcol)
+            ax.add_patch(FancyArrowPatch((arr_x0, ypos[f]), (mic_x - 0.22, ymid), arrowstyle='-|>',
+                         mutation_scale=9, lw=0.5 + 6.5 * fr, color=col, alpha=alpha, zorder=2,
+                         shrinkA=0, shrinkB=0))
+            ax.text(arr_x0 + 0.06, ypos[f] + 0.16, f'{fr:.2f}', fontsize=6.5, color=col, ha='left',
+                    va='bottom', fontweight='bold' if fr >= threshold else 'normal')
+        ax.set_xlim(-1.4, 3.5); ax.set_ylim(-0.8, rows - 0.2)
+        ax.axis('off')
+    for ax in axes[n:]:
+        ax.axis('off')
+    fig.suptitle(f'parents of {mic}: edge width proportional to selection frequency '
+                 f'(dark blue >= {threshold})', fontsize=9)
+    plt.tight_layout()
+    plt.show()
