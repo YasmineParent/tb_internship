@@ -404,7 +404,8 @@ def plot_parents_panels(rels: dict[str, str], mic: str, top: int = 7, threshold:
         ax.set_title(cond, fontsize=10, fontweight='bold')
         ax.scatter([mic_x], [ymid], s=620, color='#f4a3a3', edgecolors='black',
                    linewidths=0.6, zorder=3)
-        ax.text(mic_x, ymid, mic.replace('_mic', ''), ha='center', va='center', fontsize=7.5, zorder=4)
+        ax.text(mic_x + 0.42, ymid, mic, ha='left', va='center', fontsize=7.5,
+                fontweight='bold', zorder=4)
         for f in feats:
             fr = float(df.loc[f, cond])
             if fr >= threshold:
@@ -414,12 +415,12 @@ def plot_parents_panels(rels: dict[str, str], mic: str, top: int = 7, threshold:
             else:
                 col, alpha, tcol = '#c9c9c9', 0.5, '#9a9a9a'
             ax.text(1.5, ypos[f], f, ha='right', va='center', fontsize=7, color=tcol)
-            ax.add_patch(FancyArrowPatch((arr_x0, ypos[f]), (mic_x - 0.22, ymid), arrowstyle='-|>',
-                         mutation_scale=9, lw=0.5 + 6.5 * fr, color=col, alpha=alpha, zorder=2,
+            ax.add_patch(FancyArrowPatch((arr_x0, ypos[f]), (mic_x - 0.5, ymid), arrowstyle='-|>',
+                         mutation_scale=14, lw=0.5 + 6.5 * fr, color=col, alpha=alpha, zorder=2,
                          shrinkA=0, shrinkB=0))
             ax.text(arr_x0 + 0.06, ypos[f] + 0.16, f'{fr:.2f}', fontsize=6.5, color=col, ha='left',
                     va='bottom', fontweight='bold' if fr >= threshold else 'normal')
-        ax.set_xlim(-1.4, 3.5); ax.set_ylim(-0.8, rows - 0.2)
+        ax.set_xlim(-1.4, 4.9); ax.set_ylim(-0.8, rows - 0.2)
         ax.axis('off')
     for ax in axes[n:]:
         ax.axis('off')
